@@ -30,14 +30,20 @@ class FundMasterRepository:
         statement = select(FundMaster).where(FundMaster.fund_code == fund_code).limit(1)
         return self._session.execute(statement).scalars().first()
 
-    def upsert(self, *, fund_code: str, fund_name: str) -> FundUpsertResult:
+    def upsert(
+        self,
+        *,
+        fund_code: str,
+        fund_name: str,
+        source_name: str = "holdings_import",
+    ) -> FundUpsertResult:
         """Create a new fund or refresh mutable display fields."""
         existing_fund = self.get_by_code(fund_code)
         if existing_fund is None:
             fund = FundMaster(
                 fund_code=fund_code,
                 fund_name=fund_name,
-                source_name="holdings_import",
+                source_name=source_name,
             )
             self._session.add(fund)
             self._session.flush()
@@ -48,7 +54,7 @@ class FundMasterRepository:
             existing_fund.fund_name = fund_name
             updated = True
         if existing_fund.source_name is None:
-            existing_fund.source_name = "holdings_import"
+            existing_fund.source_name = source_name
             updated = True
 
         return FundUpsertResult(fund=existing_fund, created=False, updated=updated)
