@@ -14,6 +14,30 @@ This repository is bootstrapped for Python 3.12 and follows the layered architec
 
 No portfolio business logic, accounting rules, persistence models, or agent workflows are implemented yet.
 
+## Holdings import bootstrap
+
+The first version of `import_holdings.py` supports CSV bootstrap imports for
+opening fund holdings:
+
+```csv
+fund_code,fund_name,units,avg_cost,total_cost,portfolio_name
+000001,Alpha Fund,10.000000,1.20000000,12.0000,main
+```
+
+Current assumptions:
+
+- the importer currently supports CSV input only
+- `portfolio_name` falls back to `main` when the cell is blank
+- `avg_cost` or `total_cost` must be present; the missing value is derived deterministically
+- repeated rows for the same `portfolio_name` and `fund_code` in one file are merged into one opening lot
+- `portfolio` and `fund_master` records are created or reused, but imported `position_lot` rows are append-only snapshots and are never overwritten
+
+You can validate a file without writing data:
+
+```powershell
+uv run python -m fund_manager.data_adapters.import_holdings .\path\to\holdings.csv --dry-run
+```
+
 ## Repository layout
 
 ```text
