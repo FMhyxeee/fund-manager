@@ -4,30 +4,30 @@
 
 目标：让 Codex 在本仓库中按正确顺序工作，优先完成基础设施、账本内核、数据适配、workflow 和测试。
 
+注：本文件同时保留了早期 bootstrap 阶段提示词和后续里程碑提示词。使用前先对照 `README.md` 判断仓库当前进度，不要把初始化提示词当成当前状态说明。
+
 使用原则：
 - 每次只给 Codex 一个清晰目标。
-- 优先让 Codex 读 `AGENTS.md` 和 `docs/`。
+- 优先让 Codex 读 `AGENTS.md` 和 `doc/`。
 - 先要求它输出计划，再开始修改文件。
 - 对账本、收益率、回撤、导入逻辑必须要求测试。
 - 不要一上来让 Codex 同时做前后端和多 agent。
 
 ---
 
-## 1. 仓库初始化提示词
+## 1. 仓库状态校准提示词
 
 ```text
-Read AGENTS.md and all files under docs/ first.
-Then bootstrap this repository for a Python 3.12 project.
+Read AGENTS.md and all files under doc/ first.
+Then review README.md, top-level docs, and the current codebase before making changes.
 
 Requirements:
-- create a clean package structure based on the documented architecture
-- initialize pyproject.toml
-- configure Ruff, pytest, and mypy
-- add .env.example
-- add a minimal FastAPI app scaffold
-- add a Makefile or equivalent developer commands
-- do not implement business logic yet
-- summarize the created files and explain why each exists
+- align documentation with the repository's real implementation status today
+- verify implemented modules before making claims
+- keep deterministic accounting first, append-only history, and decision-support positioning
+- do not claim metrics, workflows, or agent runtime features unless verified in code
+- update stale bootstrap-era wording when it no longer matches the repository
+- summarize stale statements changed, rationale, and any remaining documentation gaps
 ```
 
 ---
@@ -35,7 +35,7 @@ Requirements:
 ## 2. 数据库模型初始化提示词
 
 ```text
-Read AGENTS.md and docs/ first.
+Read AGENTS.md and doc/ first.
 Implement the first version of the persistence layer using SQLAlchemy 2.x and Alembic.
 
 Create models and initial migration for:
@@ -64,7 +64,7 @@ Requirements:
 ## 3. 持仓导入器提示词
 
 ```text
-Read AGENTS.md and docs/ first.
+Read AGENTS.md and doc/ first.
 Implement the first version of import_holdings.py.
 
 Input format:
@@ -86,7 +86,7 @@ Requirements:
 ## 4. 交易流水导入器提示词
 
 ```text
-Read AGENTS.md and docs/ first.
+Read AGENTS.md and doc/ first.
 Implement import_transactions.py for personal fund transactions.
 
 Requirements:
@@ -104,7 +104,7 @@ Requirements:
 ## 5. AKShare 适配器提示词
 
 ```text
-Read AGENTS.md and docs/ first.
+Read AGENTS.md and doc/ first.
 Implement akshare_adapter.py for public fund data.
 
 Initial capabilities:
@@ -126,7 +126,7 @@ Requirements:
 ## 6. 核心指标计算提示词
 
 ```text
-Read AGENTS.md and docs/ first.
+Read AGENTS.md and doc/ first.
 Implement core portfolio metrics in core/domain/metrics.py and related services.
 
 Metrics to implement first:
@@ -151,7 +151,7 @@ Requirements:
 ## 7. 组合服务提示词
 
 ```text
-Read AGENTS.md and docs/ first.
+Read AGENTS.md and doc/ first.
 Implement the first version of portfolio_service.py and analytics_service.py.
 
 Requirements:
@@ -167,7 +167,7 @@ Requirements:
 ## 8. Agent Tools 提示词
 
 ```text
-Read AGENTS.md and docs/ first.
+Read AGENTS.md and doc/ first.
 Implement the first version of agent tool functions.
 
 Create tools for:
@@ -195,7 +195,7 @@ Requirements:
 ## 9. 单 Agent 周报工作流提示词
 
 ```text
-Read AGENTS.md and docs/ first.
+Read AGENTS.md and doc/ first.
 Implement the first manual weekly review workflow.
 
 Scope:
@@ -216,7 +216,7 @@ Requirements:
 ## 10. 多 Agent 策略辩论提示词
 
 ```text
-Read AGENTS.md and docs/ first.
+Read AGENTS.md and doc/ first.
 Implement the first multi-agent strategy debate workflow.
 
 Agents:
@@ -239,7 +239,7 @@ Requirements:
 ## 11. 调度系统提示词
 
 ```text
-Read AGENTS.md and docs/ first.
+Read AGENTS.md and doc/ first.
 Implement the scheduler layer for manual and timed workflow triggers.
 
 Requirements:
@@ -255,7 +255,7 @@ Requirements:
 ## 12. API 层提示词
 
 ```text
-Read AGENTS.md and docs/ first.
+Read AGENTS.md and doc/ first.
 Implement the first version of the FastAPI layer.
 
 Suggested endpoints:
@@ -281,7 +281,7 @@ Requirements:
 ## 13. README 完善提示词
 
 ```text
-Read AGENTS.md and docs/ first.
+Read AGENTS.md and doc/ first.
 Improve README.md after the initial implementation milestone.
 
 Requirements:
@@ -298,7 +298,7 @@ Requirements:
 ## 14. 重构提示词
 
 ```text
-Read AGENTS.md and docs/ first.
+Read AGENTS.md and doc/ first.
 Review the current repository and propose a refactor plan.
 
 Focus on:
@@ -320,7 +320,7 @@ First produce:
 ## 15. Bug 修复提示词
 
 ```text
-Read AGENTS.md and docs/ first.
+Read AGENTS.md and doc/ first.
 Investigate the reported bug thoroughly.
 
 Requirements:
@@ -337,7 +337,7 @@ Requirements:
 ## 16. 代码审查提示词
 
 ```text
-Read AGENTS.md and docs/ first.
+Read AGENTS.md and doc/ first.
 Review the current implementation as if you are the repository maintainer.
 
 Focus on:
@@ -362,11 +362,10 @@ Return:
 可以把下面这段作为很多任务前面的固定前缀：
 
 ```text
-Before changing anything, read AGENTS.md and all files under docs/.
+Before changing anything, read AGENTS.md and all files under doc/.
 Follow repository rules strictly.
 Prefer deterministic portfolio logic over LLM assumptions.
 Keep adapters, services, workflows, and prompts separated.
 Add tests for all accounting and import behavior.
 Preserve append-only historical data.
 ```
-
