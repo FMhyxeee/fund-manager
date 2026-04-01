@@ -4,6 +4,7 @@ from __future__ import annotations
 
 from collections.abc import Sequence
 from dataclasses import dataclass
+from datetime import date, timedelta
 from decimal import Decimal
 
 from fund_manager.core.domain.metrics import (
@@ -47,6 +48,21 @@ class PortfolioMetrics:
     max_drawdown_ratio: Decimal | None
     missing_nav_fund_codes: tuple[str, ...]
     position_metrics: tuple[PositionMetrics, ...]
+    accounting_assumptions_note: str = ACCOUNTING_ASSUMPTIONS_NOTE
+
+
+@dataclass(frozen=True)
+class PortfolioPerformanceMetrics:
+    """Time-series metrics derived from ordered portfolio valuation history."""
+
+    daily_return_ratio: Decimal | None
+    weekly_return_ratio: Decimal | None
+    monthly_return_ratio: Decimal | None
+    period_return_ratio: Decimal | None
+    max_drawdown_ratio: Decimal | None
+    valuation_history_start_date: date | None
+    valuation_history_end_date: date | None
+    valuation_point_count: int
     accounting_assumptions_note: str = ACCOUNTING_ASSUMPTIONS_NOTE
 
 
@@ -169,6 +185,42 @@ class AnalyticsService:
             position_metrics=position_metrics,
         )
 
+    def compute_performance_metrics(
+        self,
+        valuation_history: Sequence[PortfolioValuePoint],
+        *,
+        as_of_date: date,
+    ) -> PortfolioPerformanceMetrics:
+        """Compute bounded return windows and drawdown from valuation history."""
+        normalized_history = tuple(valuation_history)
+        valuation_history_start_date = (
+            normalized_history[0].as_of_date if normalized_history else None
+        )
+        valuation_history_end_date = (
+            normalized_history[-1].as_of_date if normalized_history else None
+        )
+
+        return PortfolioPerformanceMetrics(
+            daily_return_ratio=daily_return(normalized_history),
+            weekly_return_ratio=period_return(
+                self._filter_history_from(
+                    normalized_history,
+                    start_date=as_of_date - timedelta(days=7),
+                )
+            ),
+            monthly_return_ratio=period_return(
+                self._filter_history_from(
+                    normalized_history,
+                    start_date=as_of_date - timedelta(days=30),
+                )
+            ),
+            period_return_ratio=period_return(normalized_history),
+            max_drawdown_ratio=max_drawdown(normalized_history),
+            valuation_history_start_date=valuation_history_start_date,
+            valuation_history_end_date=valuation_history_end_date,
+            valuation_point_count=len(normalized_history),
+        )
+
     def _try_current_value(self, position: PositionValuationInput) -> Decimal | None:
         try:
             return current_value(
@@ -181,9 +233,18 @@ class AnalyticsService:
                 raise
             return None
 
+    def _filter_history_from(
+        self,
+        valuation_history: Sequence[PortfolioValuePoint],
+        *,
+        start_date: date,
+    ) -> tuple[PortfolioValuePoint, ...]:
+        return tuple(point for point in valuation_history if point.as_of_date >= start_date)
+
 
 __all__ = [
     "AnalyticsService",
     "PortfolioMetrics",
+    "PortfolioPerformanceMetrics",
     "PositionMetrics",
 ]

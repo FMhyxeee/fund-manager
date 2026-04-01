@@ -5,16 +5,35 @@ from __future__ import annotations
 from datetime import date
 from decimal import Decimal
 
-from sqlalchemy.orm import Session
+from sqlalchemy import select
+from sqlalchemy.orm import Session, joinedload
 
 from fund_manager.storage.models import PositionLot
 
 
 class PositionLotRepository:
-    """Create append-only lot snapshots for imported holdings."""
+    """Create and read append-only lot snapshots."""
 
     def __init__(self, session: Session) -> None:
         self._session = session
+
+    def list_for_portfolio_up_to(
+        self,
+        *,
+        portfolio_id: int,
+        as_of_date: date,
+    ) -> list[PositionLot]:
+        """Return lot snapshots up to a requested date with fund metadata loaded."""
+        statement = (
+            select(PositionLot)
+            .options(joinedload(PositionLot.fund))
+            .where(
+                PositionLot.portfolio_id == portfolio_id,
+                PositionLot.as_of_date <= as_of_date,
+            )
+            .order_by(PositionLot.as_of_date.asc(), PositionLot.id.asc())
+        )
+        return list(self._session.execute(statement).scalars().unique())
 
     def append_import_snapshot(
         self,

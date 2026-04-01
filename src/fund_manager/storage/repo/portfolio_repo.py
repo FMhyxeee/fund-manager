@@ -34,6 +34,11 @@ class PortfolioRepository:
     def __init__(self, session: Session) -> None:
         self._session = session
 
+    def get_by_id(self, portfolio_id: int) -> Portfolio | None:
+        """Return a portfolio by primary key when present."""
+        statement = select(Portfolio).where(Portfolio.id == portfolio_id).limit(1)
+        return self._session.execute(statement).scalars().first()
+
     def get_by_name(self, portfolio_name: str) -> Portfolio | None:
         """Return a portfolio by case-insensitive name match."""
         normalized_name = normalize_portfolio_name(portfolio_name)

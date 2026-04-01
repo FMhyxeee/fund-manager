@@ -129,3 +129,27 @@ def test_compute_portfolio_metrics_with_missing_nav_marks_portfolio_incomplete()
     assert result.period_return_ratio is None
     assert result.max_drawdown_ratio is None
     assert result.missing_nav_fund_codes == ("000002",)
+
+
+def test_compute_performance_metrics_builds_windowed_returns() -> None:
+    service = AnalyticsService()
+
+    result = service.compute_performance_metrics(
+        [
+            PortfolioValuePoint(date(2026, 3, 1), Decimal("100.0000")),
+            PortfolioValuePoint(date(2026, 3, 20), Decimal("110.0000")),
+            PortfolioValuePoint(date(2026, 3, 24), Decimal("105.0000")),
+            PortfolioValuePoint(date(2026, 3, 28), Decimal("99.0000")),
+            PortfolioValuePoint(date(2026, 3, 31), Decimal("121.0000")),
+        ],
+        as_of_date=date(2026, 3, 31),
+    )
+
+    assert result.daily_return_ratio == Decimal("0.222222")
+    assert result.weekly_return_ratio == Decimal("0.152381")
+    assert result.monthly_return_ratio == Decimal("0.210000")
+    assert result.period_return_ratio == Decimal("0.210000")
+    assert result.max_drawdown_ratio == Decimal("-0.100000")
+    assert result.valuation_history_start_date == date(2026, 3, 1)
+    assert result.valuation_history_end_date == date(2026, 3, 31)
+    assert result.valuation_point_count == 5

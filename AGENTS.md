@@ -90,6 +90,8 @@ Disallowed:
 5. Data source provenance should be stored when practical.
 6. Time series operations must be explicit about dates and ordering.
 7. Never silently coerce missing numeric values to zero unless a business rule explicitly allows it.
+8. Opening holdings imports are append-only bootstrap snapshot batches. Services reading `position_lot` must resolve the latest authoritative batch or transaction-derived lot state, not sum every historical bootstrap import together.
+9. If required NAV data is missing, services must surface an incomplete snapshot state explicitly. They must not persist a canonical complete-valued portfolio snapshot by guessing, backfilling, or silently treating missing NAVs as zero.
 
 ---
 
@@ -173,6 +175,8 @@ Preferred tool pattern:
 2. call service/repo
 3. return structured result
 4. include metadata if relevant
+
+Application services used by tools or APIs should prefer explicit structured DTOs over leaking ORM models directly.
 
 Avoid tools that:
 - do too many unrelated actions
@@ -375,4 +379,3 @@ Prioritize in this order:
 4. architecture clarity
 5. agent convenience
 6. UI polish
-
