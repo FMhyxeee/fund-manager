@@ -38,6 +38,9 @@ fund-manager-api = "fund_manager.apps.api.main:run"
 [tool.setuptools]
 package-dir = { "" = "src" }
 
+[tool.setuptools.package-data]
+fund_manager = ["agents/prompts/*.md", "reports/templates/*.j2"]
+
 [tool.setuptools.packages.find]
 where = ["src"]
 

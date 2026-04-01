@@ -152,12 +152,23 @@ Each agent must avoid:
 
 ### 7.3 Debate rule
 
-For weekly and monthly strategy workflows:
+For weekly and monthly strategy workflows that produce a strategy proposal:
 - `StrategyAgent` must propose
 - `ChallengerAgent` must critique
 - `JudgeAgent` must finalize
 
 No final strategy proposal should be saved without challenge review unless the user explicitly disables it.
+
+### 7.4 Manual weekly review stage
+
+The first weekly review workflow may be implemented as a manual, single-agent review flow before multi-agent debate is added.
+
+For this stage:
+- `CoordinatorAgent` prepares context only from deterministic services and repositories
+- `ReviewAgent` receives structured facts only, not raw database access or hidden business rules
+- weekly review output should be rendered as markdown and stored in `review_report`
+- execution metadata should be saved for traceability, including run id, trigger source, prompt reference when available, and tool call summaries
+- this workflow must not persist a strategy proposal or imply that challenge review has already happened
 
 ---
 

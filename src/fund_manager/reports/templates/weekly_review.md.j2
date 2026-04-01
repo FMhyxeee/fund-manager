@@ -1,0 +1,67 @@
+# Weekly Review
+
+- Portfolio: `{{ context.facts.portfolio_name }}`
+- Portfolio code: `{{ context.facts.portfolio_code }}`
+- Review window: `{{ context.facts.period_start.isoformat() }}` to `{{ context.facts.period_end.isoformat() }}`
+- Latest valuation date: `{{ context.facts.latest_valuation_date.isoformat() if context.facts.latest_valuation_date else "N/A" }}`
+
+## Summary
+
+{{ context.review.summary }}
+
+## Key Metrics
+
+- Total cost: {{ context.facts.total_cost_amount | money }} {{ context.facts.base_currency_code }}
+- Total market value: {{ context.facts.total_market_value_amount | money }} {{ context.facts.base_currency_code }}
+- Unrealized PnL: {{ context.facts.unrealized_pnl_amount | money }} {{ context.facts.base_currency_code }}
+- Daily return: {{ context.facts.daily_return_ratio | ratio_percent }}
+- Weekly return: {{ context.facts.period_return_ratio | ratio_percent }}
+- Trailing 30-day return: {{ context.facts.monthly_return_ratio | ratio_percent }}
+- Max drawdown in review window: {{ context.facts.max_drawdown_ratio | ratio_percent }}
+- Position count: {{ context.facts.position_count }}
+- Missing NAV funds: {{ context.facts.missing_nav_fund_codes | join(", ") if context.facts.missing_nav_fund_codes else "None" }}
+
+## What Happened
+
+{% for item in context.review.interpretation_notes %}
+- {{ item }}
+{% endfor %}
+
+## Key Drivers
+
+{% for item in context.review.key_drivers %}
+- {{ item }}
+{% endfor %}
+
+## Risks / Concerns
+
+{% for item in context.review.risks_and_concerns %}
+- {{ item }}
+{% endfor %}
+
+## Proposed Actions
+
+{% for item in context.review.recommendation_notes %}
+- {{ item }}
+{% endfor %}
+
+## Open Questions
+
+{% for item in context.review.open_questions %}
+- {{ item }}
+{% endfor %}
+
+## Fact Basis
+
+{% for item in context.review.fact_statements %}
+- {{ item }}
+{% endfor %}
+
+## Traceability
+
+- Run ID: `{{ context.run_id }}`
+- Workflow: `{{ context.workflow_name }}`
+- Trigger source: `{{ context.trigger_source }}`
+- Review agent prompt: `{{ context.prompt_reference }}`
+- Generated at: `{{ context.generated_at.isoformat() }}`
+- Accounting assumptions: {{ context.facts.accounting_assumptions_note }}
