@@ -50,6 +50,15 @@ class PortfolioRepository:
         )
         return self._session.execute(statement).scalars().first()
 
+    def list_all(self) -> tuple[Portfolio, ...]:
+        """Return all portfolios in stable display order."""
+        statement = select(Portfolio).order_by(
+            Portfolio.is_default.desc(),
+            Portfolio.portfolio_name.asc(),
+            Portfolio.id.asc(),
+        )
+        return tuple(self._session.execute(statement).scalars().all())
+
     def get_or_create(
         self,
         portfolio_name: str,
