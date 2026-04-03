@@ -41,7 +41,7 @@ fund-manager-scheduler = "fund_manager.scheduler.cli:main"
 package-dir = { "" = "src" }
 
 [tool.setuptools.package-data]
-fund_manager = ["agents/prompts/*.md", "reports/templates/*.j2"]
+fund_manager = ["agents/prompts/*.md", "reports/templates/*.j2", "apps/api/templates/*.html"]
 
 [tool.setuptools.packages.find]
 where = ["src"]

@@ -1,0 +1,211 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>Fund Manager Dashboard</title>
+<style>
+:root {
+  --bg: #ffffff;
+  --bg-card: #f8f9fa;
+  --text: #1a1a2e;
+  --text-muted: #6c757d;
+  --border: #dee2e6;
+  --accent: #3b82f6;
+  --positive: #10b981;
+  --negative: #ef4444;
+  --shadow: rgba(0,0,0,0.08);
+}
+[data-theme="dark"] {
+  --bg: #0f172a;
+  --bg-card: #1e293b;
+  --text: #e2e8f0;
+  --text-muted: #94a3b8;
+  --border: #334155;
+  --accent: #60a5fa;
+  --positive: #34d399;
+  --negative: #f87171;
+  --shadow: rgba(0,0,0,0.3);
+}
+* { margin: 0; padding: 0; box-sizing: border-box; }
+body {
+  font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, sans-serif;
+  background: var(--bg);
+  color: var(--text);
+  line-height: 1.6;
+  transition: background 0.2s, color 0.2s;
+}
+.container { max-width: 1200px; margin: 0 auto; padding: 24px; }
+header { display: flex; justify-content: space-between; align-items: center; margin-bottom: 32px; }
+h1 { font-size: 1.5rem; font-weight: 700; }
+button#theme-toggle {
+  background: var(--bg-card);
+  border: 1px solid var(--border);
+  color: var(--text);
+  padding: 8px 16px;
+  border-radius: 6px;
+  cursor: pointer;
+  font-size: 0.875rem;
+}
+button#theme-toggle:hover { border-color: var(--accent); }
+.card {
+  background: var(--bg-card);
+  border: 1px solid var(--border);
+  border-radius: 8px;
+  padding: 20px;
+  margin-bottom: 24px;
+  box-shadow: 0 1px 3px var(--shadow);
+}
+.card h2 { font-size: 1.125rem; margin-bottom: 16px; color: var(--text); }
+.overview-grid {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(180px, 1fr));
+  gap: 16px;
+}
+.metric-box { text-align: center; }
+.metric-box .label { font-size: 0.75rem; color: var(--text-muted); text-transform: uppercase; letter-spacing: 0.05em; }
+.metric-box .value { font-size: 1.25rem; font-weight: 600; margin-top: 4px; }
+.positive { color: var(--positive); }
+.negative { color: var(--negative); }
+table { width: 100%; border-collapse: collapse; font-size: 0.875rem; }
+th, td { padding: 10px 12px; text-align: right; border-bottom: 1px solid var(--border); }
+th { color: var(--text-muted); font-weight: 600; font-size: 0.75rem; text-transform: uppercase; letter-spacing: 0.05em; }
+th:first-child, td:first-child { text-align: left; }
+tr:hover { background: var(--bg); }
+.empty-state { color: var(--text-muted); font-style: italic; padding: 24px; text-align: center; }
+.report-item {
+  display: flex; justify-content: space-between; align-items: center;
+  padding: 10px 0; border-bottom: 1px solid var(--border);
+}
+.report-item:last-child { border-bottom: none; }
+.report-meta { font-size: 0.875rem; }
+.report-meta .period { font-weight: 600; }
+.report-meta .type { color: var(--text-muted); font-size: 0.75rem; }
+.report-meta .agent { color: var(--accent); font-size: 0.75rem; }
+.badge {
+  display: inline-block; padding: 2px 8px; border-radius: 4px;
+  font-size: 0.7rem; font-weight: 600; text-transform: uppercase;
+}
+.badge-warn { background: #fef3c7; color: #92400e; }
+[data-theme="dark"] .badge-warn { background: #451a03; color: #fbbf24; }
+</style>
+</head>
+<body>
+<div class="container">
+  <header>
+    <h1>Fund Manager</h1>
+    <button id="theme-toggle">Dark</button>
+  </header>
+
+  {% if snapshot %}
+  <section class="card">
+    <h2>{{ snapshot.portfolio_name }}</h2>
+    <div class="overview-grid">
+      <div class="metric-box">
+        <div class="label">Total Value</div>
+        <div class="value">{{ snapshot.total_market_value or 'N/A' }}</div>
+      </div>
+      <div class="metric-box">
+        <div class="label">Total Cost</div>
+        <div class="value">{{ snapshot.total_cost }}</div>
+      </div>
+      <div class="metric-box">
+        <div class="label">Unrealized PnL</div>
+        <div class="value {% if snapshot.unrealized_pnl and snapshot.unrealized_pnl != 'None' %}{% set pnl_val = snapshot.unrealized_pnl|float %}{% if pnl_val >= 0 %}positive{% else %}negative{% endif %}{% endif %}">{{ snapshot.unrealized_pnl or 'N/A' }}</div>
+      </div>
+      <div class="metric-box">
+        <div class="label">Daily Return</div>
+        <div class="value">{{ snapshot.daily_return or 'N/A' }}</div>
+      </div>
+      <div class="metric-box">
+        <div class="label">Weekly Return</div>
+        <div class="value">{{ snapshot.weekly_return or 'N/A' }}</div>
+      </div>
+      <div class="metric-box">
+        <div class="label">Monthly Return</div>
+        <div class="value">{{ snapshot.monthly_return or 'N/A' }}</div>
+      </div>
+    </div>
+    {% if snapshot.missing_nav_fund_codes %}
+    <div style="margin-top:12px;">
+      <span class="badge badge-warn">Missing NAV: {{ snapshot.missing_nav_fund_codes|join(', ') }}</span>
+    </div>
+    {% endif %}
+  </section>
+
+  <section class="card">
+    <h2>Positions ({{ snapshot.position_count }})</h2>
+    {% if snapshot.positions %}
+    <table>
+      <thead>
+        <tr>
+          <th>Fund Code</th>
+          <th>Name</th>
+          <th>Units</th>
+          <th>Cost</th>
+          <th>Value</th>
+          <th>Weight</th>
+          <th>PnL</th>
+        </tr>
+      </thead>
+      <tbody>
+        {% for pos in snapshot.positions %}
+        <tr>
+          <td>{{ pos.fund_code }}{% if pos.missing_nav %} <span class="badge badge-warn">NAV</span>{% endif %}</td>
+          <td>{{ pos.fund_name }}</td>
+          <td>{{ pos.units }}</td>
+          <td>{{ pos.total_cost }}</td>
+          <td>{{ pos.current_value }}</td>
+          <td>{{ pos.weight }}</td>
+          <td>{{ pos.unrealized_pnl }}</td>
+        </tr>
+        {% endfor %}
+      </tbody>
+    </table>
+    {% else %}
+    <div class="empty-state">No positions found.</div>
+    {% endif %}
+  </section>
+  {% else %}
+  <section class="card">
+    <div class="empty-state">No portfolio data available. Import holdings to get started.</div>
+  </section>
+  {% endif %}
+
+  <section class="card">
+    <h2>Recent Reports</h2>
+    {% if reports %}
+    {% for r in reports %}
+    <div class="report-item">
+      <div class="report-meta">
+        <span class="period">{{ r.period_start }} ~ {{ r.period_end }}</span>
+        <span class="type">{{ r.period_type }}</span>
+        {% if r.created_by_agent %}<span class="agent">{{ r.created_by_agent }}</span>{% endif %}
+      </div>
+      <div class="report-meta">ID #{{ r.id }}</div>
+    </div>
+    {% endfor %}
+    {% else %}
+    <div class="empty-state">No reports yet.</div>
+    {% endif %}
+  </section>
+</div>
+
+<script>
+(function() {
+  var key = 'fund-manager-theme';
+  var btn = document.getElementById('theme-toggle');
+  function apply(t) {
+    document.documentElement.setAttribute('data-theme', t);
+    btn.textContent = t === 'dark' ? 'Light' : 'Dark';
+    localStorage.setItem(key, t);
+  }
+  var saved = localStorage.getItem(key) || (matchMedia('(prefers-color-scheme:dark)').matches ? 'dark' : 'light');
+  apply(saved);
+  btn.addEventListener('click', function() {
+    apply(document.documentElement.getAttribute('data-theme') === 'dark' ? 'light' : 'dark');
+  });
+})();
+</script>
+</body>
+</html>
