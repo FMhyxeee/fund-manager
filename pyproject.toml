@@ -34,6 +34,7 @@ dev = [
 
 [project.scripts]
 fund-manager-api = "fund_manager.apps.api.main:run"
+fund-manager-scheduler = "fund_manager.scheduler.cli:main"
 
 [tool.setuptools]
 package-dir = { "" = "src" }
