@@ -22,6 +22,7 @@ from fund_manager.storage.repo import (
     PortfolioRepository,
     PortfolioSnapshotRepository,
     PositionLotRepository,
+    resolve_authoritative_position_lots,
 )
 
 UNITS_QUANTIZER = Decimal("0.000001")
@@ -454,40 +455,7 @@ class PortfolioService:
         self,
         position_lots: Iterable[PositionLot],
     ) -> tuple[PositionLot, ...]:
-        """Resolve append-only lot rows to the authoritative lot set at one point in time."""
-        latest_by_lot_key: dict[str, PositionLot] = {}
-        for position_lot in position_lots:
-            latest_by_lot_key[position_lot.lot_key] = position_lot
-
-        bootstrap_batches: dict[str, list[PositionLot]] = {}
-        tracked_lots: list[PositionLot] = []
-        for position_lot in latest_by_lot_key.values():
-            if position_lot.lot_key.startswith("initial:"):
-                batch_key = position_lot.run_id or f"bootstrap:{position_lot.id}"
-                bootstrap_batches.setdefault(batch_key, []).append(position_lot)
-            else:
-                tracked_lots.append(position_lot)
-
-        if bootstrap_batches:
-            latest_batch_key = max(
-                bootstrap_batches,
-                key=lambda batch_key: (
-                    max(lot.as_of_date for lot in bootstrap_batches[batch_key]),
-                    max(lot.id for lot in bootstrap_batches[batch_key]),
-                ),
-            )
-            tracked_lots.extend(bootstrap_batches[latest_batch_key])
-
-        return tuple(
-            sorted(
-                tracked_lots,
-                key=lambda position_lot: (
-                    position_lot.fund.fund_code,
-                    position_lot.lot_key,
-                    position_lot.id,
-                ),
-            )
-        )
+        return resolve_authoritative_position_lots(position_lots)
 
     def _latest_nav_by_fund_id(
         self,

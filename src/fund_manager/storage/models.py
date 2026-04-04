@@ -35,6 +35,11 @@ RATIO_NUMERIC = Numeric(12, 6)
 CONFIDENCE_NUMERIC = Numeric(5, 4)
 
 
+def _enum_values(enum_cls: type[StrEnum]) -> list[str]:
+    """Persist enum values instead of member names to match migrations."""
+    return [member.value for member in enum_cls]
+
+
 class TransactionType(StrEnum):
     """Supported normalized transaction types."""
 
@@ -150,6 +155,7 @@ class TransactionRecord(CreatedAtMixin, Base):
             name="transaction_type_enum",
             native_enum=False,
             length=32,
+            values_callable=_enum_values,
         ),
         nullable=False,
     )
@@ -275,6 +281,7 @@ class ReviewReport(CreatedAtMixin, Base):
             name="report_period_type_enum",
             native_enum=False,
             length=16,
+            values_callable=_enum_values,
         ),
         nullable=False,
     )

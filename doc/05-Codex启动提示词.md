@@ -1,371 +1,138 @@
 # 05-Codex 启动提示词
 
-本文件用于给 Codex 提供一组可直接复制使用的启动提示词（prompts）。
+本文件提供一组适用于当前仓库状态的维护提示词。
 
-目标：让 Codex 在本仓库中按正确顺序工作，优先完成基础设施、账本内核、数据适配、workflow 和测试。
+使用前提：
 
-注：本文件同时保留了早期 bootstrap 阶段提示词和后续里程碑提示词。使用前先对照 `README.md` 判断仓库当前进度，不要把初始化提示词当成当前状态说明。
+- 先读 `AGENTS.md`
+- 再读 `README.md` 和 `doc/`
+- 先核对当前代码实现，再声明“已支持什么”
 
-使用原则：
-- 每次只给 Codex 一个清晰目标。
-- 优先让 Codex 读 `AGENTS.md` 和 `doc/`。
-- 先要求它输出计划，再开始修改文件。
-- 对账本、收益率、回撤、导入逻辑必须要求测试。
-- 不要一上来让 Codex 同时做前后端和多 agent。
+说明：
+
+- 这不是产品文档
+- 这是给工程代理用的工作提示词模板
+- 以“当前仓库已实现内容”为默认上下文，不再按 bootstrap 阶段假设项目是空的
 
 ---
 
-## 1. 仓库状态校准提示词
+## 1. 仓库状态校准
 
 ```text
-Read AGENTS.md and all files under doc/ first.
-Then review README.md, top-level docs, and the current codebase before making changes.
+Read AGENTS.md, README.md, and all files under doc/ first.
+Then inspect the current codebase before making claims.
 
 Requirements:
-- align documentation with the repository's real implementation status today
-- verify implemented modules before making claims
-- keep deterministic accounting first, append-only history, and decision-support positioning
-- do not claim metrics, workflows, or agent runtime features unless verified in code
-- update stale bootstrap-era wording when it no longer matches the repository
-- summarize stale statements changed, rationale, and any remaining documentation gaps
+- distinguish implemented features from planned features
+- verify REST routes, scheduler jobs, and MCP tools from code
+- keep deterministic accounting first and append-only history intact
+- do not claim workflow or API support unless it exists in code
+- update stale docs if code and docs diverge
 ```
 
 ---
 
-## 2. 数据库模型初始化提示词
+## 2. 文档同步
 
 ```text
-Read AGENTS.md and doc/ first.
-Implement the first version of the persistence layer using SQLAlchemy 2.x and Alembic.
-
-Create models and initial migration for:
-- fund_master
-- portfolio
-- position_lot
-- transaction
-- nav_snapshot
-- portfolio_snapshot
-- review_report
-- strategy_proposal
-- agent_debate_log
-- system_event_log
+Read AGENTS.md, README.md, and doc/ first.
+Audit all project documentation against the real repository state.
 
 Requirements:
-- use typed SQLAlchemy models
-- preserve append-only historical truth where applicable
-- include indexes for common lookup paths
-- keep naming explicit and stable
-- add tests for model creation and migration smoke checks
-- provide a short schema rationale after implementation
+- treat README as the current-user entrypoint
+- mark blueprint/high-level docs as planning documents where needed
+- list exact implemented API routes, scheduler jobs, scripts, and MCP tools
+- remove or rewrite claims that the code does not currently support
+- keep docs concise and easy to scan
+- summarize which docs were updated and what stale claims were fixed
 ```
 
 ---
 
-## 3. 持仓导入器提示词
+## 3. Daily 数据同步增强
 
 ```text
 Read AGENTS.md and doc/ first.
-Implement the first version of import_holdings.py.
+Extend the current daily fund sync flow without bypassing the service layer.
 
-Input format:
-fund_code,fund_name,units,avg_cost,total_cost,portfolio_name
+Context:
+- the repository already has FundDataSyncService
+- daily_snapshot already runs sync first, then saves portfolio_snapshot
 
 Requirements:
-- validate required fields
-- normalize numeric precision safely
-- support dry-run mode
-- create or reuse the target portfolio
-- upsert or append according to repository rules, but do not destroy historical truth
-- produce a clear import summary
-- add unit tests and fixture-based tests
-- document assumptions in code comments and README if necessary
+- preserve deterministic accounting boundaries
+- keep external API details inside data_adapters
+- reuse repositories/services instead of writing ad hoc SQL in scripts
+- update tests for sync summaries, failure handling, and downstream snapshot behavior
+- update README and technical docs if user-facing behavior changes
 ```
 
 ---
 
-## 4. 交易流水导入器提示词
+## 4. REST API 扩展
 
 ```text
-Read AGENTS.md and doc/ first.
-Implement import_transactions.py for personal fund transactions.
+Read AGENTS.md, README.md, and doc/ first.
+Add or refine FastAPI routes for already-implemented repository capabilities.
+
+Examples:
+- fund search
+- fund NAV history
+- strategy debate trigger
+- daily sync trigger
 
 Requirements:
-- support buy, sell, dividend, convert_in, convert_out, adjust
-- validate date, amount, units, and trade_type
-- preserve source metadata and notes
-- reject invalid rows with actionable error messages
-- support dry-run mode
-- generate an import report
-- add tests for happy path and malformed input cases
+- do not invent new accounting logic in the API layer
+- keep API handlers thin
+- route all authoritative computation through services or workflows
+- return structured response models
+- add route tests and refresh README endpoint tables
 ```
 
 ---
 
-## 5. AKShare 适配器提示词
+## 5. Weekly Review / Strategy Debate 增强
 
 ```text
 Read AGENTS.md and doc/ first.
-Implement akshare_adapter.py for public fund data.
-
-Initial capabilities:
-- search_fund
-- get_fund_profile
-- get_fund_nav_history
+Improve the existing weekly review or monthly strategy debate workflows.
 
 Requirements:
-- isolate AKShare-specific details in the adapter layer
-- return normalized internal DTOs instead of raw third-party payloads
-- handle empty or partial results gracefully
-- add retry-safe behavior where reasonable
-- add tests using mocks, not live network calls
-- explain extension points for future fund-related endpoints
+- preserve workflow traceability
+- keep agent prompts separate from deterministic services
+- save structured execution metadata
+- verify persisted report/proposal outputs in tests
+- update docs if workflow entrypoints or outputs change
 ```
 
 ---
 
-## 6. 核心指标计算提示词
+## 6. MCP 扩展
 
 ```text
-Read AGENTS.md and doc/ first.
-Implement core portfolio metrics in core/domain/metrics.py and related services.
-
-Metrics to implement first:
-- current_value
-- unrealized_pnl
-- weight
-- daily_return
-- period_return
-- max_drawdown
+Read AGENTS.md, README.md, and doc/ first.
+Extend the optional MCP service for read-oriented access.
 
 Requirements:
-- deterministic logic only
-- pure functions where possible
-- explicit handling for missing NAV values
-- clear separation between domain logic and persistence access
-- comprehensive unit tests with edge cases
-- include a short note on accounting assumptions
+- keep MCP tools read-only unless explicitly approved otherwise
+- prefer existing tools/services over duplicating logic
+- return JSON-safe payloads
+- do not expose raw ORM objects
+- document any new MCP tools in README and technical docs
 ```
 
 ---
 
-## 7. 组合服务提示词
+## 7. 账本与快照相关修改
 
 ```text
 Read AGENTS.md and doc/ first.
-Implement the first version of portfolio_service.py and analytics_service.py.
+Modify accounting-related models or services carefully.
 
 Requirements:
-- expose application-level methods to assemble portfolio snapshots
-- compute metrics from stored positions and NAV history
-- avoid embedding prompt logic in services
-- return structured DTOs suitable for agent tools and API responses
-- add integration tests using a temporary database
-```
-
----
-
-## 8. Agent Tools 提示词
-
-```text
-Read AGENTS.md and doc/ first.
-Implement the first version of agent tool functions.
-
-Create tools for:
-- get_portfolio_snapshot
-- get_position_breakdown
-- get_fund_master
-- get_fund_nav_history
-- compute_portfolio_metrics
-- compute_drawdown
-- detect_risk_flags
-- save_review_report
-- save_strategy_proposal
-- save_agent_debate_log
-
-Requirements:
-- keep the tool layer thin
-- route all authoritative computation through deterministic services
-- return structured, serializable payloads
-- never let agents mutate raw accounting records directly
-- add tests for tool outputs and failure handling
-```
-
----
-
-## 9. 单 Agent 周报工作流提示词
-
-```text
-Read AGENTS.md and doc/ first.
-Implement the first manual weekly review workflow.
-
-Scope:
-- coordinator prepares context from deterministic services
-- ReviewAgent receives structured facts only
-- workflow generates markdown weekly review output
-- report is stored in review_report
-
-Requirements:
-- do not implement multi-agent debate yet
-- keep prompt text in dedicated files under agents/prompts/
-- save execution metadata for later traceability
-- include a short example of output structure
-```
-
----
-
-## 10. 多 Agent 策略辩论提示词
-
-```text
-Read AGENTS.md and doc/ first.
-Implement the first multi-agent strategy debate workflow.
-
-Agents:
-- StrategyAgent
-- ChallengerAgent
-- JudgeAgent
-
-Requirements:
-- coordinator provides the same evidence base to all agents
-- ChallengerAgent must critique the proposal, not restate it
-- JudgeAgent must synthesize and produce a final recommendation
-- persist final proposal and debate summaries
-- keep prompts isolated in markdown files
-- do not add automatic trading or execution
-- add tests for workflow orchestration boundaries
-```
-
----
-
-## 11. 调度系统提示词
-
-```text
-Read AGENTS.md and doc/ first.
-Implement the scheduler layer for manual and timed workflow triggers.
-
-Requirements:
-- support daily, weekly, and monthly jobs
-- separate scheduling from workflow business logic
-- log start, success, and failure events
-- make it easy to run a workflow manually for local development
-- add tests for schedule registration and job triggering logic
-```
-
----
-
-## 12. API 层提示词
-
-```text
-Read AGENTS.md and doc/ first.
-Implement the first version of the FastAPI layer.
-
-Suggested endpoints:
-- GET /health
-- GET /portfolios
-- GET /portfolios/{id}/snapshot
-- GET /funds/{fund_code}
-- GET /reports
-- POST /imports/holdings
-- POST /imports/transactions
-- POST /workflows/weekly-review/run
-
-Requirements:
-- keep the API thin
-- validate inputs with Pydantic v2
-- do not leak ORM models directly
-- return consistent response models
-- add API tests
-```
-
----
-
-## 13. README 完善提示词
-
-```text
-Read AGENTS.md and doc/ first.
-Improve README.md after the initial implementation milestone.
-
-Requirements:
-- document setup steps
-- explain project boundaries clearly
-- document repository structure
-- describe how to run tests and local workflows
-- include a short architecture summary
-- keep the README concise but practical
-```
-
----
-
-## 14. 重构提示词
-
-```text
-Read AGENTS.md and doc/ first.
-Review the current repository and propose a refactor plan.
-
-Focus on:
-- separation of domain logic and adapters
-- duplication in services
-- testability of accounting logic
-- clarity of workflow orchestration
-- boundaries between deterministic logic and agent logic
-
-Do not refactor immediately.
-First produce:
-- a problem list
-- a ranked refactor plan
-- estimated risk by module
-```
-
----
-
-## 15. Bug 修复提示词
-
-```text
-Read AGENTS.md and doc/ first.
-Investigate the reported bug thoroughly.
-
-Requirements:
-- reproduce the issue first
-- identify whether it is a domain logic bug, persistence bug, workflow bug, or adapter bug
-- explain root cause clearly
-- propose the smallest safe fix
-- add or update tests so the bug is locked down
-- summarize what changed and why
-```
-
----
-
-## 16. 代码审查提示词
-
-```text
-Read AGENTS.md and doc/ first.
-Review the current implementation as if you are the repository maintainer.
-
-Focus on:
-- correctness of deterministic portfolio logic
-- append-only historical behavior
-- adapter isolation
-- workflow clarity
-- prompt/business-logic separation
-- test coverage gaps
-- future maintenance risks
-
-Return:
-- critical issues
-- medium-priority issues
-- optional improvements
-```
-
----
-
-## 17. 给 Codex 的总原则短提示
-
-可以把下面这段作为很多任务前面的固定前缀：
-
-```text
-Before changing anything, read AGENTS.md and all files under doc/.
-Follow repository rules strictly.
-Prefer deterministic portfolio logic over LLM assumptions.
-Keep adapters, services, workflows, and prompts separated.
-Add tests for all accounting and import behavior.
-Preserve append-only historical data.
+- every schema change must include a migration
+- every accounting behavior change must include tests
+- missing NAV must remain explicit and must not be coerced to zero
+- append-only historical truth must be preserved
+- document any changed accounting assumptions
 ```

@@ -26,6 +26,9 @@ data = [
   "akshare>=1.15.0",
   "pandas>=2.2.3",
 ]
+mcp = [
+  "mcp>=1.6.0",
+]
 dev = [
   "mypy>=1.13.0",
   "pytest>=8.3.3",
@@ -35,6 +38,7 @@ dev = [
 
 [project.scripts]
 fund-manager-api = "fund_manager.apps.api.main:run"
+fund-manager-mcp = "fund_manager.mcp.server:main"
 fund-manager-scheduler = "fund_manager.scheduler.cli:main"
 
 [tool.setuptools]

@@ -88,6 +88,7 @@ class SchedulerLogger:
             "started_at": result.started_at.isoformat(),
             "finished_at": result.finished_at.isoformat(),
             "error_message": result.error_message,
+            "payload": result.payload,
         }
 
     def persist_event(

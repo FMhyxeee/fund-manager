@@ -102,7 +102,7 @@ class SchedulerEngine:
         )
 
         try:
-            entry.job_fn(portfolio_id=portfolio_id, trigger_source=trigger_source)
+            payload = entry.job_fn(portfolio_id=portfolio_id, trigger_source=trigger_source)
             finished_at = datetime.now(tz=UTC)
             result = JobResult(
                 entry_name=entry.name,
@@ -113,6 +113,7 @@ class SchedulerEngine:
                 finished_at=finished_at,
                 portfolio_id=portfolio_id,
                 trigger_source=trigger_source,
+                payload=payload if isinstance(payload, dict) else {},
             )
             self._logger.log_completed(
                 entry_name=entry.name,

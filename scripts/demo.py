@@ -8,10 +8,19 @@ sys.path.insert(0, os.path.join(os.path.dirname(__file__), "..", "src"))
 
 import numpy as np
 from datetime import date, timedelta
-from sqlalchemy import create_engine, text
+from sqlalchemy import text
 
-DB_PATH = os.path.join(os.path.dirname(__file__), "..", "data", "fund_manager.db")
-engine = create_engine(f"sqlite:///{DB_PATH}")
+from fund_manager.core.config import get_settings
+from fund_manager.core.services.portfolio_service import PortfolioService
+from fund_manager.storage.db import get_engine, get_session_factory
+
+engine = get_engine()
+DATABASE_URL = get_settings().database_url
+DB_PATH = (
+    DATABASE_URL.removeprefix("sqlite:///./")
+    if DATABASE_URL.startswith("sqlite:///./")
+    else DATABASE_URL.removeprefix("sqlite:///")
+)
 
 BANNER = """
 ╔══════════════════════════════════════════════╗
@@ -27,6 +36,14 @@ def step(title: str):
     print(f"\n{'━' * 50}")
     print(f"  {title}")
     print(f"{'━' * 50}")
+
+
+def _normalize_daily_return_ratio(value) -> float | None:
+    """Handle legacy rows that stored percentage points instead of ratios."""
+    if value is None:
+        return None
+    normalized = float(value)
+    return normalized / 100 if abs(normalized) > 0.2 else normalized
 
 
 def demo_fund_search():
@@ -69,7 +86,13 @@ def demo_nav_history():
         return
 
     navs = np.array([float(r[1]) for r in rows])
-    returns = np.array([float(r[2]) / 100 for r in rows[1:] if r[2] is not None])
+    returns = np.array(
+        [
+            normalized
+            for _, _, raw_ratio in rows[1:]
+            if (normalized := _normalize_daily_return_ratio(raw_ratio)) is not None
+        ]
+    )
 
     print(f"\n  基金: {info[1]}（{info[0]}）")
     print(f"  数据: {rows[0][0]} ~ {rows[-1][0]}（{len(rows)} 个交易日）")
@@ -102,55 +125,44 @@ def demo_nav_history():
 def demo_portfolio_snapshot():
     """演示组合快照"""
     step("💼 持仓组合快照")
+    session = get_session_factory()()
+    try:
+        snapshot = PortfolioService(session).assemble_portfolio_snapshot(
+            1,
+            as_of_date=date.today(),
+        )
+    finally:
+        session.close()
 
-    with engine.connect() as c:
-        txs = c.execute(
-            text("""SELECT fm.fund_code, fm.fund_name, t.units, t.gross_amount, t.trade_date
-                FROM "transaction" t JOIN fund_master fm ON t.fund_id = fm.id
-                WHERE t.trade_type = 'buy' ORDER BY t.trade_date"""),
-        ).fetchall()
-
-    if not txs:
+    if not snapshot.positions:
         print("  ⚠️ 无持仓记录")
         print("  提示: 运行以下命令录入示例持仓:")
         print('    PYTHONPATH=src python scripts/demo.py --setup')
         return
 
-    total_cost = 0.0
-    total_value = 0.0
+    for position in snapshot.positions:
+        if position.latest_nav_per_unit is None or position.current_value_amount is None:
+            continue
+        units = float(position.units)
+        cost = float(position.total_cost_amount)
+        nav = float(position.latest_nav_per_unit)
+        value = float(position.current_value_amount)
+        pnl = float(position.unrealized_pnl_amount or 0)
+        pnl_pct = (pnl / cost * 100) if cost > 0 else 0
+        emoji = "🔴" if pnl < 0 else "🟢"
 
-    for tx in txs:
-        fund_code, fund_name, units, gross_amount, trade_date = tx
-        units, cost = float(units), float(gross_amount)
+        print(f"\n  {emoji} {position.fund_name}（{position.fund_code}）")
+        print(f"    份额: {units:,.2f}")
+        print(f"    成本: ¥{cost:,.2f}（¥{float(position.average_cost_per_unit):.4f}/份）")
+        print(f"    净值: ¥{nav:.4f}（{position.latest_nav_date}）")
+        print(f"    市值: ¥{value:,.2f}")
+        print(f"    盈亏: ¥{pnl:+,.2f}（{pnl_pct:+.2f}%）")
 
-        with engine.connect() as c:
-            latest = c.execute(
-                text("SELECT nav_date, unit_nav_amount FROM nav_snapshot "
-                     "WHERE fund_id=(SELECT id FROM fund_master WHERE fund_code=:fc) "
-                     "ORDER BY nav_date DESC LIMIT 1"),
-                {"fc": fund_code},
-            ).fetchone()
-
-        if latest:
-            nav = float(latest[1])
-            value = units * nav
-            pnl = value - cost
-            pnl_pct = (pnl / cost * 100) if cost > 0 else 0
-            emoji = "🔴" if pnl < 0 else "🟢"
-
-            print(f"\n  {emoji} {fund_name}（{fund_code}）")
-            print(f"    份额: {units:,.2f}")
-            print(f"    成本: ¥{cost:,.2f}（¥{cost/units:.4f}/份）")
-            print(f"    净值: ¥{nav:.4f}（{latest[0]}）")
-            print(f"    市值: ¥{value:,.2f}")
-            print(f"    盈亏: ¥{pnl:+,.2f}（{pnl_pct:+.2f}%）")
-
-            total_cost += cost
-            total_value += value
-
-    if total_cost > 0:
-        total_pnl = total_value - total_cost
-        total_pct = total_pnl / total_cost * 100
+    if snapshot.total_market_value_amount is not None and snapshot.unrealized_pnl_amount is not None:
+        total_cost = float(snapshot.total_cost_amount)
+        total_value = float(snapshot.total_market_value_amount)
+        total_pnl = float(snapshot.unrealized_pnl_amount)
+        total_pct = (total_pnl / total_cost * 100) if total_cost > 0 else 0
         emoji = "🔴" if total_pnl < 0 else "🟢"
         print(f"\n  {'━' * 40}")
         print(f"  {emoji} 组合总计")
@@ -194,6 +206,9 @@ def setup_demo_data():
             (portfolio_id, fund_id, trade_date, trade_type, units, gross_amount, nav_per_unit, source_name, note, created_at)
             VALUES (1, (SELECT id FROM fund_master WHERE fund_code='012348'),
             '2026-04-02', 'buy', 56544.13, 36617.98, 0.6476, 'demo', '演示数据', datetime('now'))"""))
+        c.execute(text("""INSERT INTO position_lot
+            (portfolio_id, fund_id, source_transaction_id, run_id, lot_key, opened_on, as_of_date, remaining_units, average_cost_per_unit, total_cost_amount, created_at)
+            VALUES (1, (SELECT id FROM fund_master WHERE fund_code='012348'), 1, 'demo-bootstrap', 'tx:1', '2026-04-02', '2026-04-02', 56544.13, 0.6476, 36617.98, datetime('now'))"""))
 
         c.commit()
         print("  ✅ 已创建演示持仓: 天弘恒生科技ETF联接A（012348）")

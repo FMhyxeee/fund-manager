@@ -58,3 +58,42 @@ class FundMasterRepository:
             updated = True
 
         return FundUpsertResult(fund=existing_fund, created=False, updated=updated)
+
+    def update_public_profile(
+        self,
+        *,
+        fund_code: str,
+        fund_name: str | None = None,
+        fund_type: str | None = None,
+        company_name: str | None = None,
+        manager_name: str | None = None,
+        benchmark_name: str | None = None,
+        source_name: str | None = None,
+        source_reference: str | None = None,
+    ) -> bool:
+        """Refresh mutable public profile fields when new values are available."""
+        fund = self.get_by_code(fund_code)
+        if fund is None:
+            msg = f"Fund {fund_code} does not exist."
+            raise ValueError(msg)
+
+        updated = False
+        updates = {
+            "fund_name": fund_name,
+            "fund_type": fund_type,
+            "company_name": company_name,
+            "manager_name": manager_name,
+            "benchmark_name": benchmark_name,
+            "source_name": source_name,
+            "source_reference": source_reference,
+        }
+
+        for field_name, field_value in updates.items():
+            if field_value is None:
+                continue
+            if getattr(fund, field_name) == field_value:
+                continue
+            setattr(fund, field_name, field_value)
+            updated = True
+
+        return updated

@@ -20,11 +20,13 @@ from fund_manager.scheduler.types import (
     JobStatus,
     TriggerSource,
 )
+from fund_manager.core.services import FundSyncDetailDTO, PortfolioFundSyncResultDTO
 from fund_manager.storage.models import (
     Base,
     FundMaster,
     NavSnapshot,
     Portfolio,
+    PortfolioSnapshot,
     PositionLot,
     SystemEventLog,
 )
@@ -173,9 +175,78 @@ class TestSchedulerDailySnapshotIntegration:
     def test_run_daily_job_produces_snapshot(self, session: Session) -> None:
         portfolio = _seed_portfolio(session)
 
+        class FakeDailySyncService:
+            def __init__(self, current_session: Session) -> None:
+                self._session = current_session
+
+            def sync_portfolio_funds(
+                self,
+                portfolio_id: int,
+                *,
+                as_of_date: date,
+            ) -> PortfolioFundSyncResultDTO:
+                del portfolio_id
+                alpha_fund = session.execute(
+                    select(FundMaster).where(FundMaster.fund_code == "000001")
+                ).scalar_one()
+                beta_fund = session.execute(
+                    select(FundMaster).where(FundMaster.fund_code == "000002")
+                ).scalar_one()
+                self._session.add_all(
+                    [
+                        NavSnapshot(
+                            fund_id=alpha_fund.id,
+                            nav_date=as_of_date,
+                            unit_nav_amount=Decimal("1.60000000"),
+                            daily_return_ratio=Decimal("0.066667"),
+                            source_name="fake",
+                        ),
+                        NavSnapshot(
+                            fund_id=beta_fund.id,
+                            nav_date=as_of_date,
+                            unit_nav_amount=Decimal("3.30000000"),
+                            daily_return_ratio=Decimal("0.064516"),
+                            source_name="fake",
+                        ),
+                    ]
+                )
+                return PortfolioFundSyncResultDTO(
+                    portfolio_id=portfolio.id,
+                    as_of_date=as_of_date,
+                    processed_fund_count=2,
+                    profile_updated_count=0,
+                    nav_records_inserted=2,
+                    failed_fund_codes=(),
+                    funds=(
+                        FundSyncDetailDTO(
+                            fund_id=alpha_fund.id,
+                            fund_code=alpha_fund.fund_code,
+                            fund_name=alpha_fund.fund_name,
+                            profile_updated=False,
+                            nav_records_inserted=1,
+                            warnings=(),
+                            errors=(),
+                        ),
+                        FundSyncDetailDTO(
+                            fund_id=beta_fund.id,
+                            fund_code=beta_fund.fund_code,
+                            fund_name=beta_fund.fund_name,
+                            profile_updated=False,
+                            nav_records_inserted=1,
+                            warnings=(),
+                            errors=(),
+                        ),
+                    ),
+                )
+
         registry = SchedulerRegistry()
         event_repo = SystemEventLogRepository(session)
-        register_default_jobs(session, registry, as_of_date=date(2026, 3, 15))
+        register_default_jobs(
+            session,
+            registry,
+            as_of_date=date(2026, 3, 15),
+            fund_data_sync_service_factory=FakeDailySyncService,
+        )
 
         engine = SchedulerEngine(
             registry,
@@ -192,7 +263,12 @@ class TestSchedulerDailySnapshotIntegration:
 
         assert result.status == JobStatus.COMPLETED
         assert result.entry_name == "daily_snapshot"
+        assert result.payload["sync"]["nav_records_inserted"] == 2
+        assert result.payload["snapshot"]["snapshot_record_id"] is not None
         session.commit()
+        persisted_row = session.execute(select(PortfolioSnapshot)).scalar_one()
+        assert persisted_row.snapshot_date == date(2026, 3, 15)
+        assert persisted_row.total_market_value_amount == Decimal("35.7000")
 
 
 class TestSchedulerRegistryDefaultJobs:

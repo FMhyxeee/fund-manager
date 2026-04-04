@@ -63,12 +63,14 @@ Keep the repository layered:
 - `agents/tools`: controlled tools exposed to agents.
 - `agents/workflows`: orchestration and loop logic.
 - `scheduler`: timed triggers and automation entrypoints.
+- `mcp`: optional read-oriented transport layer for external agent clients.
 - `apps/api`: external API surface.
 
 ### 4.2 Dependency direction
 
 Allowed dependency direction:
 - `apps/api` -> `core/services`, `storage/repo`, `agents/workflows`
+- `mcp` -> `agents/tools`, `core/services`, `storage/repo`
 - `agents/workflows` -> `agents/tools`, `core/services`, `storage/repo`
 - `agents/tools` -> `core/services`, `storage/repo`, `data_adapters`
 - `data_adapters` -> external APIs only
@@ -92,6 +94,7 @@ Disallowed:
 7. Never silently coerce missing numeric values to zero unless a business rule explicitly allows it.
 8. Opening holdings imports are append-only bootstrap snapshot batches. Services reading `position_lot` must resolve the latest authoritative batch or transaction-derived lot state, not sum every historical bootstrap import together.
 9. If required NAV data is missing, services must surface an incomplete snapshot state explicitly. They must not persist a canonical complete-valued portfolio snapshot by guessing, backfilling, or silently treating missing NAVs as zero.
+10. Scheduled or scripted market-data refreshes must write through repositories/services. Do not duplicate persistence logic in one-off scripts when a core service can own it.
 
 ---
 

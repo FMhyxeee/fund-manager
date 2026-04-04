@@ -56,7 +56,30 @@ class TestSchedulerEngineRunJob:
         assert result.trigger_source == TriggerSource.MANUAL
         assert result.error_message is None
         assert result.run_id.startswith("scheduler-test_job-")
+        assert result.payload == {}
         assert call_log == [{"portfolio_id": 1, "trigger_source": "manual"}]
+
+    def test_run_job_captures_dict_payload(self) -> None:
+        registry = SchedulerRegistry()
+        registry.register(
+            _make_entry(
+                job_fn=lambda *, portfolio_id, trigger_source: {
+                    "portfolio_id": portfolio_id,
+                    "trigger_source": trigger_source,
+                }
+            )
+        )
+        engine = SchedulerEngine(registry)
+
+        result = engine.run_job(
+            "test_job",
+            JobFrequency.DAILY,
+            portfolio_id=9,
+            trigger_source=TriggerSource.SCHEDULED,
+        )
+
+        assert result.status == JobStatus.COMPLETED
+        assert result.payload == {"portfolio_id": 9, "trigger_source": "scheduled"}
 
     def test_run_job_captures_failure(self) -> None:
         registry = SchedulerRegistry()
@@ -247,6 +270,7 @@ class TestSchedulerLogger:
         assert payload["entry_name"] == "test_job"
         assert payload["status"] == "completed"
         assert payload["error_message"] is None
+        assert payload["payload"] == {}
 
     def test_build_event_payload_failed(self) -> None:
         logger = SchedulerLogger()

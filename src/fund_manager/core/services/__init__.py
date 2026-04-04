@@ -6,6 +6,11 @@ from fund_manager.core.services.analytics_service import (
     PortfolioPerformanceMetrics,
     PositionMetrics,
 )
+from fund_manager.core.services.fund_data_sync_service import (
+    FundDataSyncService,
+    FundSyncDetailDTO,
+    PortfolioFundSyncResultDTO,
+)
 from fund_manager.core.services.portfolio_service import (
     IncompletePortfolioSnapshotError,
     PortfolioNotFoundError,
@@ -17,8 +22,11 @@ from fund_manager.core.services.portfolio_service import (
 
 __all__ = [
     "AnalyticsService",
+    "FundDataSyncService",
+    "FundSyncDetailDTO",
     "IncompletePortfolioSnapshotError",
     "PortfolioMetrics",
+    "PortfolioFundSyncResultDTO",
     "PortfolioNotFoundError",
     "PortfolioPerformanceMetrics",
     "PortfolioPositionDTO",
