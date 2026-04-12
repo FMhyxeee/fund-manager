@@ -17,8 +17,8 @@ from fund_manager.agents.runtime import (
     ReviewPositionFact,
     WeeklyReviewFacts,
 )
-from fund_manager.core.serialization import serialize_for_json
 from fund_manager.core.domain.metrics import PortfolioValuePoint
+from fund_manager.core.serialization import serialize_for_json
 from fund_manager.core.services import AnalyticsService, PortfolioService
 from fund_manager.reports import WeeklyReviewMarkdownExporter
 from fund_manager.storage.models import ReportPeriodType
@@ -87,21 +87,26 @@ class WeeklyReviewWorkflow:
         period_start: date,
         period_end: date,
         trigger_source: str = "manual",
+        created_by: str | None = None,
+        idempotency_key: str | None = None,
+        run_id: str | None = None,
     ) -> WeeklyReviewWorkflowResult:
         """Run the manual weekly review workflow for one portfolio."""
         if period_start > period_end:
             msg = "period_start cannot be later than period_end."
             raise ValueError(msg)
 
-        run_id = build_weekly_review_run_id(period_end)
+        resolved_run_id = run_id or build_weekly_review_run_id(period_end)
         self._record_event(
             event_type="workflow_started",
             status="started",
             portfolio_id=portfolio_id,
-            run_id=run_id,
+            run_id=resolved_run_id,
             event_message="Weekly review workflow started.",
             payload_json={
                 "trigger_source": trigger_source,
+                "created_by": created_by,
+                "idempotency_key": idempotency_key,
                 "period_start": period_start,
                 "period_end": period_end,
             },
@@ -123,7 +128,7 @@ class WeeklyReviewWorkflow:
                 event_type="context_prepared",
                 status="completed",
                 portfolio_id=portfolio_id,
-                run_id=run_id,
+                run_id=resolved_run_id,
                 event_message="Coordinator prepared structured weekly review facts.",
                 payload_json={
                     "position_count": facts.position_count,
@@ -136,7 +141,7 @@ class WeeklyReviewWorkflow:
             review_output = self._review_agent.review(facts)
             self._agent_log_repo.append(
                 portfolio_id=portfolio_id,
-                run_id=run_id,
+                run_id=resolved_run_id,
                 workflow_name=WORKFLOW_NAME,
                 agent_name=self._review_agent.agent_name,
                 model_name=self._review_agent.model_name,
@@ -149,7 +154,7 @@ class WeeklyReviewWorkflow:
             report_markdown = self._markdown_exporter.render(
                 facts=facts,
                 review=review_output,
-                run_id=run_id,
+                run_id=resolved_run_id,
                 workflow_name=WORKFLOW_NAME,
                 trigger_source=trigger_source,
                 prompt_reference=self._review_agent.prompt.path.as_posix(),
@@ -157,10 +162,12 @@ class WeeklyReviewWorkflow:
             summary_json = self._build_report_summary_json(
                 facts=facts,
                 review_output=review_output,
-                run_id=run_id,
+                run_id=resolved_run_id,
                 trigger_source=trigger_source,
                 tool_call_summaries=tool_call_summaries,
             )
+            summary_json["execution_metadata"]["created_by"] = created_by
+            summary_json["execution_metadata"]["idempotency_key"] = idempotency_key
             review_report = self._review_report_repo.append(
                 portfolio_id=portfolio_id,
                 period_type=ReportPeriodType.WEEKLY,
@@ -169,7 +176,7 @@ class WeeklyReviewWorkflow:
                 report_markdown=report_markdown,
                 summary_json=summary_json,
                 created_by_agent=self._review_agent.agent_name,
-                run_id=run_id,
+                run_id=resolved_run_id,
                 workflow_name=WORKFLOW_NAME,
             )
 
@@ -177,7 +184,7 @@ class WeeklyReviewWorkflow:
                 event_type="report_persisted",
                 status="completed",
                 portfolio_id=portfolio_id,
-                run_id=run_id,
+                run_id=resolved_run_id,
                 event_message="Weekly review report persisted.",
                 payload_json={"review_report_id": review_report.id},
                 commit=False,
@@ -186,11 +193,13 @@ class WeeklyReviewWorkflow:
                 event_type="workflow_completed",
                 status="completed",
                 portfolio_id=portfolio_id,
-                run_id=run_id,
+                run_id=resolved_run_id,
                 event_message="Weekly review workflow completed successfully.",
                 payload_json={
                     "review_report_id": review_report.id,
                     "created_by_agent": self._review_agent.agent_name,
+                    "created_by": created_by,
+                    "idempotency_key": idempotency_key,
                 },
                 commit=False,
             )
@@ -199,16 +208,18 @@ class WeeklyReviewWorkflow:
             self._session.rollback()
             self._record_failure_event(
                 portfolio_id=portfolio_id,
-                run_id=run_id,
+                run_id=resolved_run_id,
                 period_start=period_start,
                 period_end=period_end,
                 trigger_source=trigger_source,
+                created_by=created_by,
+                idempotency_key=idempotency_key,
                 error=exc,
             )
             raise
 
         return WeeklyReviewWorkflowResult(
-            run_id=run_id,
+            run_id=resolved_run_id,
             workflow_name=WORKFLOW_NAME,
             portfolio_id=portfolio_id,
             period_start=period_start,
@@ -427,6 +438,8 @@ class WeeklyReviewWorkflow:
         period_start: date,
         period_end: date,
         trigger_source: str,
+        created_by: str | None,
+        idempotency_key: str | None,
         error: Exception,
     ) -> None:
         try:
@@ -440,6 +453,8 @@ class WeeklyReviewWorkflow:
                     "period_start": period_start,
                     "period_end": period_end,
                     "trigger_source": trigger_source,
+                    "created_by": created_by,
+                    "idempotency_key": idempotency_key,
                     "error_type": type(error).__name__,
                 },
                 commit=True,

@@ -11,6 +11,8 @@ from pydantic import BaseModel, Field
 from sqlalchemy.orm import Session
 
 from fund_manager.apps.api.dependencies import get_db
+from fund_manager.apps.api.request_metadata import WriteRequestMetadata
+from fund_manager.core.run_identity import resolve_run_id
 from fund_manager.core.services import PolicyService
 from fund_manager.storage.repo import (
     FundMasterRepository,
@@ -36,6 +38,7 @@ class PolicyTargetResponse(BaseModel):
 class PolicyResponse(BaseModel):
     policy_id: int
     portfolio_id: int
+    run_id: str | None = None
     policy_name: str
     effective_from: date
     effective_to: date | None = None
@@ -55,7 +58,7 @@ class PolicyTargetCreateRequest(BaseModel):
     trim_allowed: bool = True
 
 
-class PolicyCreateRequest(BaseModel):
+class PolicyCreateRequest(WriteRequestMetadata):
     portfolio_id: int
     policy_name: str
     effective_from: date
@@ -63,9 +66,7 @@ class PolicyCreateRequest(BaseModel):
     targets: list[PolicyTargetCreateRequest] = Field(min_length=1)
     effective_to: date | None = None
     max_single_position_weight_ratio: Decimal | None = None
-    created_by: str | None = None
     notes: str | None = None
-    run_id: str | None = None
 
 
 @router.get("/active", response_model=PolicyResponse)
@@ -99,6 +100,13 @@ def create_policy(
 
     targets = _resolve_policy_targets(request.targets, session)
     policy_repo = PortfolioPolicyRepository(session)
+    run_id = resolve_run_id(
+        prefix="policy-create",
+        scope_date=request.effective_from,
+        run_id=request.run_id,
+        idempotency_key=request.idempotency_key,
+    )
+    _ensure_policy_run_id_available(policy_repo, run_id)
     policy_repo.append(
         portfolio_id=request.portfolio_id,
         policy_name=request.policy_name,
@@ -108,7 +116,7 @@ def create_policy(
         max_single_position_weight_ratio=request.max_single_position_weight_ratio,
         created_by=request.created_by,
         notes=request.notes,
-        run_id=request.run_id,
+        run_id=run_id,
         targets=targets,
     )
     session.commit()
@@ -196,6 +204,7 @@ def _build_policy_response(policy: object) -> PolicyResponse:
     return PolicyResponse(
         policy_id=policy.policy_id,
         portfolio_id=policy.portfolio_id,
+        run_id=policy.run_id,
         policy_name=policy.policy_name,
         effective_from=policy.effective_from,
         effective_to=policy.effective_to,
@@ -217,6 +226,15 @@ def _build_policy_response(policy: object) -> PolicyResponse:
             for target in policy.targets
         ],
     )
+
+
+def _ensure_policy_run_id_available(policy_repo: PortfolioPolicyRepository, run_id: str) -> None:
+    existing_policy = policy_repo.get_by_run_id(run_id)
+    if existing_policy is not None:
+        raise HTTPException(
+            status_code=409,
+            detail=f"Run ID '{run_id}' already exists for policy {existing_policy.id}.",
+        )
 
 
 __all__ = [

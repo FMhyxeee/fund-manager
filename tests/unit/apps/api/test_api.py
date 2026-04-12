@@ -27,6 +27,7 @@ from fund_manager.storage.models import (
     FundMaster,
     NavSnapshot,
     Portfolio,
+    PortfolioPolicy,
     PortfolioSnapshot,
     PositionLot,
     ReportPeriodType,
@@ -131,6 +132,9 @@ def test_list_portfolios_with_data(client: TestClient, session: Session) -> None
 def test_get_portfolio_snapshot_not_found(client: TestClient) -> None:
     response = client.get("/api/v1/portfolios/9999/snapshot")
     assert response.status_code == 404
+    data = response.json()
+    assert data["detail"] == "Portfolio not found"
+    assert data["error"]["code"] == "portfolio_not_found"
 
 
 def test_get_portfolio_snapshot(client: TestClient, session: Session) -> None:
@@ -711,6 +715,46 @@ def test_run_daily_decision_workflow(client: TestClient, session: Session) -> No
     assert data["decision_run_id"] >= 1
 
 
+def test_run_daily_decision_workflow_rejects_duplicate_idempotency_key(
+    client: TestClient,
+    session: Session,
+) -> None:
+    portfolio = seed_portfolio_with_fund(session)
+    fund = session.query(FundMaster).filter(FundMaster.fund_code == "000001").one()
+    session.add(
+        NavSnapshot(
+            fund_id=fund.id,
+            nav_date=date(2026, 3, 14),
+            unit_nav_amount=Decimal("1.25000000"),
+            source_name="test",
+        )
+    )
+    session.commit()
+
+    first_response = client.post(
+        "/api/v1/workflows/daily-decision/run",
+        json={
+            "portfolio_id": portfolio.id,
+            "decision_date": "2026-03-15",
+            "idempotency_key": "decision-2026-03-15",
+        },
+    )
+    second_response = client.post(
+        "/api/v1/workflows/daily-decision/run",
+        json={
+            "portfolio_id": portfolio.id,
+            "decision_date": "2026-03-15",
+            "idempotency_key": "decision-2026-03-15",
+        },
+    )
+
+    assert first_response.status_code == 200
+    assert second_response.status_code == 409
+    data = second_response.json()
+    assert data["error"]["code"] == "duplicate_run_id"
+    assert session.query(DecisionRun).count() == 1
+
+
 def test_run_daily_decision_workflow_not_found(client: TestClient) -> None:
     response = client.post(
         "/api/v1/workflows/daily-decision/run",
@@ -807,8 +851,49 @@ def test_create_policy(client: TestClient, session: Session) -> None:
     data = response.json()
     assert data["policy_name"] == "baseline-current-allocation"
     assert data["created_by"] == "api-test"
+    assert data["run_id"].startswith("policy-create-20260315-")
     assert len(data["targets"]) == 2
     assert data["targets"][1]["fund_code"] == "000002"
+
+
+def test_create_policy_rejects_duplicate_run_id(client: TestClient, session: Session) -> None:
+    portfolio = Portfolio(portfolio_code="main", portfolio_name="Main Portfolio")
+    alpha_fund = FundMaster(fund_code="000001", fund_name="Alpha Fund", source_name="test")
+    session.add_all([portfolio, alpha_fund])
+    session.flush()
+    session.add(
+        PortfolioPolicy(
+            portfolio_id=portfolio.id,
+            run_id="policy-create-20260315-fixed",
+            policy_name="baseline-1",
+            effective_from=date(2026, 3, 15),
+            rebalance_threshold_ratio=Decimal("0.030000"),
+            created_by="test",
+        )
+    )
+    session.commit()
+
+    response = client.post(
+        "/api/v1/policies",
+        json={
+            "portfolio_id": portfolio.id,
+            "policy_name": "baseline-2",
+            "effective_from": "2026-03-15",
+            "rebalance_threshold_ratio": "0.030000",
+            "run_id": "policy-create-20260315-fixed",
+            "targets": [
+                {
+                    "fund_code": "000001",
+                    "target_weight_ratio": "1.000000",
+                }
+            ],
+        },
+    )
+
+    assert response.status_code == 409
+    data = response.json()
+    assert data["error"]["code"] == "duplicate_run_id"
+    assert session.query(PortfolioPolicy).count() == 1
 
 
 def test_create_policy_rejects_unknown_fund_code(client: TestClient, session: Session) -> None:
@@ -927,6 +1012,15 @@ def test_run_monthly_strategy_debate_workflow_not_found(client: TestClient) -> N
         json={"portfolio_id": 9999, "period_end": "2026-03-15"},
     )
     assert response.status_code == 404
+
+
+def test_validation_error_uses_stable_error_envelope(client: TestClient) -> None:
+    response = client.post("/api/v1/workflows/daily-decision/run", json={})
+
+    assert response.status_code == 422
+    data = response.json()
+    assert data["detail"] == "Request validation failed"
+    assert data["error"]["code"] == "validation_error"
 
 
 def seed_strategy_portfolio(session: Session) -> Portfolio:

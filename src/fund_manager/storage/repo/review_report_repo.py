@@ -38,6 +38,16 @@ class ReviewReportRepository:
         )
         return self._session.execute(statement).scalars().first()
 
+    def get_by_run_id(self, run_id: str) -> ReviewReport | None:
+        """Fetch one persisted review report by run ID."""
+        statement = (
+            select(ReviewReport)
+            .options(joinedload(ReviewReport.portfolio))
+            .where(ReviewReport.run_id == run_id)
+            .limit(1)
+        )
+        return self._session.execute(statement).scalars().first()
+
     def append(
         self,
         *,

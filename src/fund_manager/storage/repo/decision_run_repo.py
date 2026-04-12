@@ -35,6 +35,19 @@ class DecisionRunRepository:
         )
         return self._session.execute(statement).scalars().first()
 
+    def get_detail_by_run_id(self, run_id: str) -> DecisionRun | None:
+        """Fetch one decision run by run ID with portfolio and policy metadata loaded."""
+        statement = (
+            select(DecisionRun)
+            .options(
+                joinedload(DecisionRun.portfolio),
+                joinedload(DecisionRun.policy),
+            )
+            .where(DecisionRun.run_id == run_id)
+            .limit(1)
+        )
+        return self._session.execute(statement).scalars().first()
+
     def list_recent(
         self,
         *,

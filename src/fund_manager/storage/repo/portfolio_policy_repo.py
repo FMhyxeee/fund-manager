@@ -2,10 +2,10 @@
 
 from __future__ import annotations
 
+from collections.abc import Sequence
 from dataclasses import dataclass
 from datetime import date
 from decimal import Decimal
-from typing import Sequence
 
 from sqlalchemy import or_, select
 from sqlalchemy.orm import Session, selectinload
@@ -52,6 +52,18 @@ class PortfolioPolicyRepository:
                 ),
             )
             .order_by(PortfolioPolicy.effective_from.desc(), PortfolioPolicy.id.desc())
+            .limit(1)
+        )
+        return self._session.execute(statement).scalars().first()
+
+    def get_by_run_id(self, run_id: str) -> PortfolioPolicy | None:
+        """Fetch one policy snapshot by run ID."""
+        statement = (
+            select(PortfolioPolicy)
+            .options(
+                selectinload(PortfolioPolicy.targets).selectinload(PortfolioPolicyTarget.fund)
+            )
+            .where(PortfolioPolicy.run_id == run_id)
             .limit(1)
         )
         return self._session.execute(statement).scalars().first()

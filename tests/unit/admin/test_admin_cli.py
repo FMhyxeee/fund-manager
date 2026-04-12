@@ -174,6 +174,7 @@ def test_policy_create_appends_policy(
     data = json.loads(capsys.readouterr().out)
     assert data["policy_name"] == "rebalance-policy"
     assert data["created_by"] == "cli-test"
+    assert data["run_id"].startswith("policy-create-20260316-")
     assert len(data["targets"]) == 2
 
     policy_count = session.query(PortfolioPolicy).count()
@@ -294,6 +295,56 @@ def test_decision_run_executes_workflow(
     assert data["decision"]["actions"][0]["action_type"] == "set_policy"
 
 
+def test_decision_run_rejects_duplicate_run_id(
+    session: Session,
+    engine,
+    monkeypatch: pytest.MonkeyPatch,
+    capsys: pytest.CaptureFixture[str],
+) -> None:
+    install_test_session_factory(monkeypatch, engine)
+    portfolio, fund = seed_portfolio_with_fund(session)
+    session.add(
+        NavSnapshot(
+            fund_id=fund.id,
+            nav_date=date(2026, 3, 15),
+            unit_nav_amount=Decimal("1.25000000"),
+            source_name="test",
+        )
+    )
+    session.commit()
+
+    admin_cli.main(
+        [
+            "decision",
+            "run",
+            "--portfolio-id",
+            str(portfolio.id),
+            "--decision-date",
+            "2026-03-15",
+            "--run-id",
+            "daily-decision-20260315-fixed",
+        ]
+    )
+
+    with pytest.raises(SystemExit) as excinfo:
+        admin_cli.main(
+            [
+                "decision",
+                "run",
+                "--portfolio-id",
+                str(portfolio.id),
+                "--decision-date",
+                "2026-03-15",
+                "--run-id",
+                "daily-decision-20260315-fixed",
+            ]
+        )
+
+    assert excinfo.value.code == 1
+    error = json.loads(capsys.readouterr().err)
+    assert error["error"]["code"] == "duplicate_run_id"
+
+
 def test_decision_feedback_records_manual_feedback(
     session: Session,
     engine,
@@ -411,7 +462,12 @@ def test_workflow_run_weekly_review_outputs_payload(
     monkeypatch.setattr(
         admin_cli.WeeklyReviewWorkflow,
         "run",
-        lambda self, portfolio_id, period_start, period_end, trigger_source: SimpleNamespace(
+        lambda self,
+        portfolio_id,
+        period_start,
+        period_end,
+        trigger_source,
+        **kwargs: SimpleNamespace(
             run_id="weekly-review-1",
             workflow_name="weekly_review",
             portfolio_id=portfolio_id,
@@ -468,7 +524,12 @@ def test_workflow_run_monthly_strategy_debate_outputs_payload(
     monkeypatch.setattr(
         admin_cli.StrategyDebateWorkflow,
         "run",
-        lambda self, portfolio_id, period_start, period_end, trigger_source: SimpleNamespace(
+        lambda self,
+        portfolio_id,
+        period_start,
+        period_end,
+        trigger_source,
+        **kwargs: SimpleNamespace(
             run_id="strategy-debate-1",
             workflow_name="strategy_debate",
             portfolio_id=portfolio_id,

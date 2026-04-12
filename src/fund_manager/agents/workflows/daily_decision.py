@@ -4,8 +4,8 @@ from __future__ import annotations
 
 from dataclasses import dataclass
 from datetime import date
-from uuid import uuid4
 from typing import Any
+from uuid import uuid4
 
 from sqlalchemy.orm import Session
 
@@ -54,18 +54,23 @@ class DailyDecisionWorkflow:
         portfolio_id: int,
         decision_date: date,
         trigger_source: str = "manual",
+        created_by: str | None = None,
+        idempotency_key: str | None = None,
+        run_id: str | None = None,
     ) -> DailyDecisionWorkflowResult:
         """Run the deterministic daily decision workflow for one portfolio."""
-        run_id = build_daily_decision_run_id(decision_date)
+        resolved_run_id = run_id or build_daily_decision_run_id(decision_date)
         self._record_event(
             event_type="workflow_started",
             status="started",
             portfolio_id=portfolio_id,
-            run_id=run_id,
+            run_id=resolved_run_id,
             event_message="Daily decision workflow started.",
             payload_json={
                 "decision_date": decision_date,
                 "trigger_source": trigger_source,
+                "created_by": created_by,
+                "idempotency_key": idempotency_key,
             },
             commit=True,
         )
@@ -79,7 +84,7 @@ class DailyDecisionWorkflow:
                 event_type="decision_computed",
                 status="completed",
                 portfolio_id=portfolio_id,
-                run_id=run_id,
+                run_id=resolved_run_id,
                 event_message="Deterministic decision result computed from canonical facts.",
                 payload_json={
                     "policy_id": decision.policy_id,
@@ -100,7 +105,7 @@ class DailyDecisionWorkflow:
                 decision_summary_json=decision.to_dict(),
                 created_by_agent=DECISION_ENGINE_NAME,
                 confidence_score=decision.confidence_score,
-                run_id=run_id,
+                run_id=resolved_run_id,
                 workflow_name=WORKFLOW_NAME,
             )
 
@@ -108,7 +113,7 @@ class DailyDecisionWorkflow:
                 event_type="decision_persisted",
                 status="completed",
                 portfolio_id=portfolio_id,
-                run_id=run_id,
+                run_id=resolved_run_id,
                 event_message="Daily decision artifact persisted.",
                 payload_json={"decision_run_id": decision_run.id},
                 commit=False,
@@ -117,11 +122,13 @@ class DailyDecisionWorkflow:
                 event_type="workflow_completed",
                 status="completed",
                 portfolio_id=portfolio_id,
-                run_id=run_id,
+                run_id=resolved_run_id,
                 event_message="Daily decision workflow completed successfully.",
                 payload_json={
                     "decision_run_id": decision_run.id,
                     "final_decision": decision.final_decision,
+                    "created_by": created_by,
+                    "idempotency_key": idempotency_key,
                 },
                 commit=False,
             )
@@ -130,15 +137,17 @@ class DailyDecisionWorkflow:
             self._session.rollback()
             self._record_failure_event(
                 portfolio_id=portfolio_id,
-                run_id=run_id,
+                run_id=resolved_run_id,
                 decision_date=decision_date,
                 trigger_source=trigger_source,
+                created_by=created_by,
+                idempotency_key=idempotency_key,
                 error=exc,
             )
             raise
 
         return DailyDecisionWorkflowResult(
-            run_id=run_id,
+            run_id=resolved_run_id,
             workflow_name=WORKFLOW_NAME,
             portfolio_id=portfolio_id,
             decision_date=decision_date,
@@ -176,6 +185,8 @@ class DailyDecisionWorkflow:
         run_id: str,
         decision_date: date,
         trigger_source: str,
+        created_by: str | None,
+        idempotency_key: str | None,
         error: Exception,
     ) -> None:
         try:
@@ -188,6 +199,8 @@ class DailyDecisionWorkflow:
                 payload_json={
                     "decision_date": decision_date,
                     "trigger_source": trigger_source,
+                    "created_by": created_by,
+                    "idempotency_key": idempotency_key,
                     "error_type": type(error).__name__,
                 },
                 commit=True,

@@ -5,17 +5,18 @@ from __future__ import annotations
 import argparse
 import json
 import sys
+from collections.abc import Callable
 from dataclasses import asdict, dataclass
 from datetime import date, timedelta
 from decimal import Decimal, InvalidOperation
-from typing import Any, Callable, cast
-from uuid import uuid4
+from typing import Any, cast
 
 from sqlalchemy.orm import Session
 
 from fund_manager.agents.workflows.daily_decision import DailyDecisionWorkflow
 from fund_manager.agents.workflows.strategy_debate import StrategyDebateWorkflow
 from fund_manager.agents.workflows.weekly_review import WeeklyReviewWorkflow
+from fund_manager.core.run_identity import resolve_run_id
 from fund_manager.core.serialization import serialize_for_json
 from fund_manager.core.services import (
     DecisionFeedbackError,
@@ -34,8 +35,10 @@ from fund_manager.storage.repo import (
     PortfolioPolicyRepository,
     PortfolioPolicyTargetCreate,
     PortfolioRepository,
+    PortfolioSnapshotRepository,
+    ReviewReportRepository,
+    StrategyProposalRepository,
 )
-
 
 CommandHandler = Callable[[argparse.Namespace, Session], Any]
 
@@ -80,7 +83,10 @@ def _build_parser() -> argparse.ArgumentParser:
 def _build_policy_commands(
     resource_subparsers: argparse._SubParsersAction[argparse.ArgumentParser],
 ) -> None:
-    policy_parser = resource_subparsers.add_parser("policy", help="Read or append portfolio policies.")
+    policy_parser = resource_subparsers.add_parser(
+        "policy",
+        help="Read or append portfolio policies.",
+    )
     policy_subparsers = policy_parser.add_subparsers(dest="action", required=True)
 
     show_parser = policy_subparsers.add_parser("show", help="Show the active policy for one date.")
@@ -93,11 +99,20 @@ def _build_policy_commands(
     create_parser.add_argument("--policy-name", required=True)
     create_parser.add_argument("--effective-from", type=_parse_date, required=True)
     create_parser.add_argument("--effective-to", type=_parse_date, default=None)
-    create_parser.add_argument("--rebalance-threshold-ratio", type=_parse_decimal, required=True)
-    create_parser.add_argument("--max-single-position-weight-ratio", type=_parse_decimal, default=None)
+    create_parser.add_argument(
+        "--rebalance-threshold-ratio",
+        type=_parse_decimal,
+        required=True,
+    )
+    create_parser.add_argument(
+        "--max-single-position-weight-ratio",
+        type=_parse_decimal,
+        default=None,
+    )
     create_parser.add_argument("--created-by", default=None)
     create_parser.add_argument("--notes", default=None)
     create_parser.add_argument("--run-id", default=None)
+    create_parser.add_argument("--idempotency-key", default=None)
     create_parser.add_argument(
         "--target",
         action="append",
@@ -130,6 +145,9 @@ def _build_decision_commands(
     run_parser.add_argument("--portfolio-id", type=int, required=True)
     run_parser.add_argument("--decision-date", type=_parse_date, default=None)
     run_parser.add_argument("--trigger-source", default="cli")
+    run_parser.add_argument("--created-by", default=None)
+    run_parser.add_argument("--run-id", default=None)
+    run_parser.add_argument("--idempotency-key", default=None)
     run_parser.set_defaults(handler=_handle_decision_run)
 
     feedback_parser = decision_subparsers.add_parser(
@@ -170,6 +188,9 @@ def _build_workflow_commands(
     daily_snapshot_parser.add_argument("--portfolio-id", type=int, required=True)
     daily_snapshot_parser.add_argument("--as-of-date", type=_parse_date, default=None)
     daily_snapshot_parser.add_argument("--trigger-source", default="cli")
+    daily_snapshot_parser.add_argument("--created-by", default=None)
+    daily_snapshot_parser.add_argument("--run-id", default=None)
+    daily_snapshot_parser.add_argument("--idempotency-key", default=None)
     daily_snapshot_parser.set_defaults(handler=_handle_workflow_run_daily_snapshot)
 
     daily_decision_parser = workflow_run_subparsers.add_parser(
@@ -179,6 +200,9 @@ def _build_workflow_commands(
     daily_decision_parser.add_argument("--portfolio-id", type=int, required=True)
     daily_decision_parser.add_argument("--decision-date", type=_parse_date, default=None)
     daily_decision_parser.add_argument("--trigger-source", default="cli")
+    daily_decision_parser.add_argument("--created-by", default=None)
+    daily_decision_parser.add_argument("--run-id", default=None)
+    daily_decision_parser.add_argument("--idempotency-key", default=None)
     daily_decision_parser.set_defaults(handler=_handle_workflow_run_daily_decision)
 
     weekly_review_parser = workflow_run_subparsers.add_parser(
@@ -189,6 +213,9 @@ def _build_workflow_commands(
     weekly_review_parser.add_argument("--period-start", type=_parse_date, default=None)
     weekly_review_parser.add_argument("--period-end", type=_parse_date, default=None)
     weekly_review_parser.add_argument("--trigger-source", default="cli")
+    weekly_review_parser.add_argument("--created-by", default=None)
+    weekly_review_parser.add_argument("--run-id", default=None)
+    weekly_review_parser.add_argument("--idempotency-key", default=None)
     weekly_review_parser.set_defaults(handler=_handle_workflow_run_weekly_review)
 
     strategy_parser = workflow_run_subparsers.add_parser(
@@ -199,6 +226,9 @@ def _build_workflow_commands(
     strategy_parser.add_argument("--period-start", type=_parse_date, default=None)
     strategy_parser.add_argument("--period-end", type=_parse_date, default=None)
     strategy_parser.add_argument("--trigger-source", default="cli")
+    strategy_parser.add_argument("--created-by", default=None)
+    strategy_parser.add_argument("--run-id", default=None)
+    strategy_parser.add_argument("--idempotency-key", default=None)
     strategy_parser.set_defaults(handler=_handle_workflow_run_monthly_strategy_debate)
 
 
@@ -217,6 +247,13 @@ def _handle_policy_create(args: argparse.Namespace, session: Session) -> dict[st
     _require_portfolio(session, args.portfolio_id)
     targets = _resolve_policy_targets(session, args.target)
     policy_repo = PortfolioPolicyRepository(session)
+    run_id = resolve_run_id(
+        prefix="policy-create",
+        scope_date=args.effective_from,
+        run_id=args.run_id,
+        idempotency_key=args.idempotency_key,
+    )
+    _ensure_policy_run_id_available(session, run_id)
     policy_repo.append(
         portfolio_id=args.portfolio_id,
         policy_name=args.policy_name,
@@ -226,7 +263,7 @@ def _handle_policy_create(args: argparse.Namespace, session: Session) -> dict[st
         max_single_position_weight_ratio=args.max_single_position_weight_ratio,
         created_by=args.created_by,
         notes=args.notes,
-        run_id=args.run_id,
+        run_id=run_id,
         targets=targets,
     )
     session.commit()
@@ -262,6 +299,9 @@ def _handle_decision_run(args: argparse.Namespace, session: Session) -> dict[str
         portfolio_id=args.portfolio_id,
         decision_date=args.decision_date or date.today(),
         trigger_source=args.trigger_source,
+        created_by=args.created_by,
+        run_id=args.run_id,
+        idempotency_key=args.idempotency_key,
     )
 
 
@@ -283,11 +323,20 @@ def _handle_decision_feedback(args: argparse.Namespace, session: Session) -> dic
     return payload
 
 
-def _handle_workflow_run_daily_snapshot(args: argparse.Namespace, session: Session) -> dict[str, Any]:
+def _handle_workflow_run_daily_snapshot(
+    args: argparse.Namespace,
+    session: Session,
+) -> dict[str, Any]:
     _require_portfolio(session, args.portfolio_id)
     as_of_date = args.as_of_date or date.today()
     workflow_name = "daily_snapshot"
-    run_id = f"daily-snapshot-{as_of_date:%Y%m%d}-{uuid4().hex[:8]}"
+    run_id = resolve_run_id(
+        prefix="daily-snapshot",
+        scope_date=as_of_date,
+        run_id=args.run_id,
+        idempotency_key=args.idempotency_key,
+    )
+    _ensure_snapshot_run_id_available(session, run_id)
 
     sync_result = FundDataSyncService(session).sync_portfolio_funds(
         args.portfolio_id,
@@ -313,27 +362,46 @@ def _handle_workflow_run_daily_snapshot(args: argparse.Namespace, session: Sessi
     }
 
 
-def _handle_workflow_run_daily_decision(args: argparse.Namespace, session: Session) -> dict[str, Any]:
+def _handle_workflow_run_daily_decision(
+    args: argparse.Namespace,
+    session: Session,
+) -> dict[str, Any]:
     return _run_daily_decision_payload(
         session,
         portfolio_id=args.portfolio_id,
         decision_date=args.decision_date or date.today(),
         trigger_source=args.trigger_source,
+        created_by=args.created_by,
+        run_id=args.run_id,
+        idempotency_key=args.idempotency_key,
     )
 
 
-def _handle_workflow_run_weekly_review(args: argparse.Namespace, session: Session) -> dict[str, Any]:
+def _handle_workflow_run_weekly_review(
+    args: argparse.Namespace,
+    session: Session,
+) -> dict[str, Any]:
     _require_portfolio(session, args.portfolio_id)
     period_start, period_end = _resolve_period_bounds(
         period_start=args.period_start,
         period_end=args.period_end,
         default_span_days=7,
     )
+    run_id = resolve_run_id(
+        prefix="weekly-review",
+        scope_date=period_end,
+        run_id=args.run_id,
+        idempotency_key=args.idempotency_key,
+    )
+    _ensure_review_report_run_id_available(session, run_id)
     result = WeeklyReviewWorkflow(session).run(
         portfolio_id=args.portfolio_id,
         period_start=period_start,
         period_end=period_end,
         trigger_source=args.trigger_source,
+        created_by=args.created_by,
+        idempotency_key=args.idempotency_key,
+        run_id=run_id,
     )
     return {
         "run_id": result.run_id,
@@ -355,12 +423,22 @@ def _handle_workflow_run_monthly_strategy_debate(
     period_start = args.period_start or period_end.replace(day=1)
     if period_start > period_end:
         raise ValueError("period_start cannot be later than period_end.")
+    run_id = resolve_run_id(
+        prefix="strategy-debate",
+        scope_date=period_end,
+        run_id=args.run_id,
+        idempotency_key=args.idempotency_key,
+    )
+    _ensure_strategy_proposal_run_id_available(session, run_id)
 
     result = StrategyDebateWorkflow(session).run(
         portfolio_id=args.portfolio_id,
         period_start=period_start,
         period_end=period_end,
         trigger_source=args.trigger_source,
+        created_by=args.created_by,
+        idempotency_key=args.idempotency_key,
+        run_id=run_id,
     )
     return {
         "run_id": result.run_id,
@@ -384,12 +462,25 @@ def _run_daily_decision_payload(
     portfolio_id: int,
     decision_date: date,
     trigger_source: str,
+    created_by: str | None = None,
+    run_id: str | None = None,
+    idempotency_key: str | None = None,
 ) -> dict[str, Any]:
     _require_portfolio(session, portfolio_id)
+    resolved_run_id = resolve_run_id(
+        prefix="daily-decision",
+        scope_date=decision_date,
+        run_id=run_id,
+        idempotency_key=idempotency_key,
+    )
+    _ensure_decision_run_id_available(session, resolved_run_id)
     result = DailyDecisionWorkflow(session).run(
         portfolio_id=portfolio_id,
         decision_date=decision_date,
         trigger_source=trigger_source,
+        created_by=created_by,
+        idempotency_key=idempotency_key,
+        run_id=resolved_run_id,
     )
     decision_payload = serialize_for_json(result.decision.to_dict())
     return {
@@ -412,7 +503,9 @@ def _resolve_period_bounds(
     default_span_days: int,
 ) -> tuple[date, date]:
     resolved_period_end = period_end or date.today()
-    resolved_period_start = period_start or (resolved_period_end - timedelta(days=default_span_days))
+    resolved_period_start = period_start or (
+        resolved_period_end - timedelta(days=default_span_days)
+    )
     if resolved_period_start > resolved_period_end:
         raise ValueError("period_start cannot be later than period_end.")
     return resolved_period_start, resolved_period_end
@@ -553,7 +646,11 @@ def _build_decision_run_summary_payload(decision_run: DecisionRun) -> dict[str, 
                 "portfolio_code": decision_run.portfolio.portfolio_code,
                 "portfolio_name": decision_run.portfolio.portfolio_name,
                 "policy_id": decision_run.policy_id,
-                "policy_name": decision_run.policy.policy_name if decision_run.policy is not None else None,
+                "policy_name": (
+                    decision_run.policy.policy_name
+                    if decision_run.policy is not None
+                    else None
+                ),
                 "run_id": decision_run.run_id,
                 "workflow_name": decision_run.workflow_name,
                 "decision_date": decision_run.decision_date,
@@ -594,10 +691,65 @@ def _emit_json(payload: Any) -> None:
 
 def _emit_error(error: Exception) -> None:
     payload = {
-        "error": str(error),
-        "error_type": type(error).__name__,
+        "error": {
+            "code": _infer_error_code(error),
+            "message": str(error),
+        }
     }
     print(json.dumps(serialize_for_json(payload), indent=2, sort_keys=True), file=sys.stderr)
+
+
+def _ensure_snapshot_run_id_available(session: Session, run_id: str) -> None:
+    snapshot = PortfolioSnapshotRepository(session).get_by_run_id(run_id)
+    if snapshot is not None:
+        raise CommandError(
+            f"Run ID '{run_id}' already exists for portfolio snapshot {snapshot.id}."
+        )
+
+
+def _ensure_decision_run_id_available(session: Session, run_id: str) -> None:
+    decision_run = DecisionRunRepository(session).get_detail_by_run_id(run_id)
+    if decision_run is not None:
+        raise CommandError(f"Run ID '{run_id}' already exists for decision run {decision_run.id}.")
+
+
+def _ensure_policy_run_id_available(session: Session, run_id: str) -> None:
+    existing_policy = PortfolioPolicyRepository(session).get_by_run_id(run_id)
+    if existing_policy is not None:
+        raise CommandError(f"Run ID '{run_id}' already exists for policy {existing_policy.id}.")
+
+
+def _ensure_review_report_run_id_available(session: Session, run_id: str) -> None:
+    review_report = ReviewReportRepository(session).get_by_run_id(run_id)
+    if review_report is not None:
+        raise CommandError(
+            f"Run ID '{run_id}' already exists for review report {review_report.id}."
+        )
+
+
+def _ensure_strategy_proposal_run_id_available(session: Session, run_id: str) -> None:
+    proposal = StrategyProposalRepository(session).get_by_run_id(run_id)
+    if proposal is not None:
+        raise CommandError(
+            f"Run ID '{run_id}' already exists for strategy proposal {proposal.id}."
+        )
+
+
+def _infer_error_code(error: Exception) -> str:
+    message = str(error).strip().lower()
+    if "portfolio" in message and "not found" in message:
+        return "portfolio_not_found"
+    if "decision run" in message and "not found" in message:
+        return "decision_run_not_found"
+    if "run id" in message and "already exists" in message:
+        return "duplicate_run_id"
+    if "active policy not found" in message:
+        return "active_policy_not_found"
+    if "period_start cannot be later than period_end" in message:
+        return "invalid_period_range"
+    if "action index" in message or "action_index" in message:
+        return "action_index_invalid"
+    return type(error).__name__
 
 
 def main(argv: list[str] | None = None) -> None:

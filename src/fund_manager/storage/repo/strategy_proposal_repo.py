@@ -39,6 +39,16 @@ class StrategyProposalRepository:
         )
         return self._session.execute(statement).scalars().first()
 
+    def get_by_run_id(self, run_id: str) -> StrategyProposal | None:
+        """Fetch one persisted strategy proposal by run ID."""
+        statement = (
+            select(StrategyProposal)
+            .options(joinedload(StrategyProposal.portfolio))
+            .where(StrategyProposal.run_id == run_id)
+            .limit(1)
+        )
+        return self._session.execute(statement).scalars().first()
+
     def append(
         self,
         *,

@@ -32,6 +32,7 @@ class PortfolioPolicyDTO:
 
     policy_id: int
     portfolio_id: int
+    run_id: str | None
     policy_name: str
     effective_from: date
     effective_to: date | None
@@ -83,6 +84,7 @@ class PolicyService:
         return PortfolioPolicyDTO(
             policy_id=policy.id,
             portfolio_id=policy.portfolio_id,
+            run_id=policy.run_id,
             policy_name=policy.policy_name,
             effective_from=policy.effective_from,
             effective_to=policy.effective_to,
