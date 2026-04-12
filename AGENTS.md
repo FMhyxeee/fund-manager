@@ -58,6 +58,36 @@ Do **not** implement or assume the following in v1 unless explicitly requested:
    - The system is built for one trusted operator.
    - Optimize for clarity, maintainability, and auditability over enterprise complexity.
 
+### Boundary with OpenClaw
+
+`fund-manager` owns the investment-domain source of truth.
+
+`fund-manager` is responsible for:
+- canonical portfolio data and persistence
+- deterministic accounting and policy evaluation
+- append-only audit artifacts such as snapshots, reports, decisions, feedback, and reconciliation links
+- fund-domain ingestion paths such as AKShare sync, holdings import, transaction import, and NAV refresh
+- typed domain interfaces exposed through API, CLI, MCP, or agent tools
+
+`OpenClaw` is responsible for:
+- agent runtime, model/profile selection, auth context, and tool permissions
+- channel interaction such as chat replies, Feishu delivery, inbox-style summaries, and notifications
+- orchestration concerns such as heartbeat checks, cron triggers, retry policy, and “who should be told”
+- cross-project tools that are not fund-specific, such as web search, mail, calendar, shell, and GitHub workflows
+
+Coordination rule:
+- `OpenClaw` may call `fund-manager`, schedule `fund-manager`, or summarize `fund-manager` outputs.
+- `fund-manager` must not depend on `OpenClaw` internals to remain correct.
+- `OpenClaw` must not bypass `fund-manager` services by writing the database directly or re-implementing portfolio truth in prompts.
+
+Practical split:
+- “What is the portfolio state?” belongs in `fund-manager`.
+- “When should we run the workflow and how should we present it?” belongs in `OpenClaw`.
+- “Should this imported transaction be linked to a prior decision?” belongs in `fund-manager`.
+- “Should the human receive a Feishu summary right now?” belongs in `OpenClaw`.
+
+For an action-level ownership checklist, see [`doc/06-边界与接口清单.md`](./doc/06-%E8%BE%B9%E7%95%8C%E4%B8%8E%E6%8E%A5%E5%8F%A3%E6%B8%85%E5%8D%95.md).
+
 ---
 
 ## 4. Architecture Guardrails

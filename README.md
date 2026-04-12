@@ -17,7 +17,7 @@ Personal, self-hosted, agent-driven fund portfolio review and strategy assistant
 - 每日快照任务、每周复盘工作流、每月策略辩论工作流
 - FastAPI API、HTML Dashboard、可选 MCP 只读服务
 
-README 只描述当前已实现内容；产品规划和历史文档见 [`doc/`](./doc)。
+README 只描述当前已实现内容；产品规划、历史文档和系统边界说明见 [`doc/`](./doc)。
 
 ## 核心能力
 
@@ -133,6 +133,22 @@ uv run fund-manager-scheduler monthly --portfolio-id 1
 - `--as-of-date YYYY-MM-DD`
 - `--job-name daily_snapshot|weekly_review|monthly_strategy_debate`
 
+### 运行 Admin CLI
+
+```bash
+uv run fund-manager-admin policy show --portfolio-id 1 --as-of-date 2026-04-12
+uv run fund-manager-admin decision run --portfolio-id 1 --decision-date 2026-04-12
+uv run fund-manager-admin decision feedback --decision-run-id 1 --action-index 0 --feedback-status executed
+uv run fund-manager-admin workflow run daily-snapshot --portfolio-id 1 --as-of-date 2026-04-12
+uv run fund-manager-admin workflow run weekly-review --portfolio-id 1 --period-end 2026-04-12
+uv run fund-manager-admin workflow run monthly-strategy-debate --portfolio-id 1 --period-end 2026-04-12
+```
+
+用途定位：
+
+- `fund-manager-scheduler`: 频率驱动 job 触发
+- `fund-manager-admin`: 动作驱动 domain command，适合同机自动化、OpenClaw 编排和人工排障
+
 ### 运行脚本
 
 ```bash
@@ -157,17 +173,28 @@ uv run python scripts/portfolio_daily_report.py
 | `GET` | `/api/v1/dashboard` | HTML Dashboard |
 | `GET` | `/api/v1/portfolios` | 组合列表 |
 | `GET` | `/api/v1/portfolios/{portfolio_id}/snapshot` | 组合快照 |
+| `GET` | `/api/v1/portfolios/{portfolio_id}/positions` | 持仓明细 |
+| `GET` | `/api/v1/portfolios/{portfolio_id}/metrics` | 组合指标 |
+| `GET` | `/api/v1/portfolios/{portfolio_id}/valuation-history` | 组合估值历史 |
+| `GET` | `/api/v1/portfolios/{portfolio_id}/latest-report` | 最新周报详情 |
+| `GET` | `/api/v1/portfolios/{portfolio_id}/latest-strategy-proposal` | 最新策略提案详情 |
 | `GET` | `/api/v1/funds/{fund_code}` | 基金基础资料 |
+| `GET` | `/api/v1/funds/{fund_code}/nav-history` | 基金净值历史 |
+| `GET` | `/api/v1/policies/active` | 生效中的组合 policy |
+| `POST` | `/api/v1/policies` | append-only 创建 policy |
+| `GET` | `/api/v1/decisions` | 决策记录列表 |
+| `GET` | `/api/v1/decisions/{decision_run_id}` | 单条决策详情 |
+| `POST` | `/api/v1/decisions/{decision_run_id}/feedback` | 决策动作反馈 |
+| `GET` | `/api/v1/decisions/{decision_run_id}/feedback` | 决策反馈历史 |
 | `GET` | `/api/v1/reports` | 周报列表 |
+| `GET` | `/api/v1/reports/{report_id}` | 周报详情 |
+| `GET` | `/api/v1/strategy-proposals/{proposal_id}` | 策略提案详情 |
 | `POST` | `/api/v1/imports/holdings` | 导入持仓 CSV |
 | `POST` | `/api/v1/imports/transactions` | 导入交易 CSV |
+| `POST` | `/api/v1/workflows/daily-snapshot/run` | 手动触发日快照 |
+| `POST` | `/api/v1/workflows/daily-decision/run` | 手动触发日决策 |
 | `POST` | `/api/v1/workflows/weekly-review/run` | 手动触发周报 |
-
-当前尚未开放为 REST 端点、但代码中已有能力的内容：
-
-- monthly strategy debate 的 HTTP 触发入口
-- fund search / NAV history 的 HTTP 查询入口
-- daily sync 的独立 HTTP 触发入口
+| `POST` | `/api/v1/workflows/monthly-strategy-debate/run` | 手动触发月度策略辩论 |
 
 ## Dashboard
 
@@ -195,9 +222,23 @@ uv run fund-manager-mcp
 - `portfolio_positions`
 - `portfolio_valuation_history`
 - `portfolio_metrics`
+- `portfolio_active_policy`
 - `fund_profile`
 - `fund_nav_history`
+- `decision_run_list`
+- `decision_run_get`
+- `decision_feedback_list`
+- `review_report_get`
 - `simulate_model_portfolio`
+
+当前内部 typed tools 还包括：
+
+- `get_portfolio_metrics`
+- `get_portfolio_valuation_history`
+- `get_active_policy`
+- `run_daily_decision`
+- `get_decision_run`
+- `record_decision_feedback`
 
 ## 主要工作流
 

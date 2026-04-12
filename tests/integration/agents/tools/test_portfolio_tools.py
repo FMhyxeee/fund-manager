@@ -14,12 +14,17 @@ from sqlalchemy.orm import Session, sessionmaker
 from fund_manager.agents.tools import PortfolioSummaryDTO, PortfolioTools
 from fund_manager.storage.models import (
     Base,
+    DecisionRun,
+    DecisionTransactionLink,
     FundMaster,
     NavSnapshot,
     Portfolio,
     PositionLot,
     ReviewReport,
+    TransactionRecord,
+    TransactionType,
 )
+from fund_manager.storage.repo import PortfolioPolicyRepository, PortfolioPolicyTargetCreate
 
 
 def test_portfolio_tools_list_and_read_snapshot_by_name(session: Session) -> None:
@@ -76,6 +81,117 @@ def test_portfolio_tools_run_weekly_review_returns_json_safe_result(session: Ses
     persisted_report = session.execute(select(ReviewReport)).scalar_one()
     assert persisted_report.id == result["report_record_id"]
     assert persisted_report.run_id == result["run_id"]
+
+
+def test_portfolio_tools_metrics_policy_and_daily_decision(session: Session) -> None:
+    portfolio = seed_portfolio_with_valuation_history(session)
+    alpha_fund = session.execute(
+        select(FundMaster).where(FundMaster.fund_code == "000001")
+    ).scalar_one()
+    beta_fund = session.execute(
+        select(FundMaster).where(FundMaster.fund_code == "000002")
+    ).scalar_one()
+    PortfolioPolicyRepository(session).append(
+        portfolio_id=portfolio.id,
+        policy_name="baseline-current-allocation",
+        effective_from=date(2026, 3, 15),
+        rebalance_threshold_ratio=Decimal("0.03"),
+        max_single_position_weight_ratio=Decimal("0.60"),
+        targets=(
+            PortfolioPolicyTargetCreate(
+                fund_id=alpha_fund.id,
+                target_weight_ratio=Decimal("0.537313"),
+            ),
+            PortfolioPolicyTargetCreate(
+                fund_id=beta_fund.id,
+                target_weight_ratio=Decimal("0.462687"),
+            ),
+        ),
+    )
+    session.commit()
+
+    tools = PortfolioTools(session)
+    metrics = tools.get_portfolio_metrics(
+        portfolio_id=portfolio.id,
+        as_of_date=date(2026, 3, 15),
+    )
+    valuation_history = tools.get_portfolio_valuation_history(
+        portfolio_name="Main",
+        start_date=date(2026, 3, 1),
+        end_date=date(2026, 3, 15),
+    )
+    active_policy = tools.get_active_policy(
+        portfolio_id=portfolio.id,
+        as_of_date=date(2026, 3, 15),
+    )
+    decision_result = tools.run_daily_decision(
+        portfolio_id=portfolio.id,
+        decision_date=date(2026, 3, 15),
+    )
+    decision_payload = tools.get_decision_run(
+        decision_run_id=decision_result["decision_run_id"],
+    )
+
+    assert metrics["metrics"]["position_count"] == 2
+    assert metrics["metrics"]["top_positions"][0]["fund_code"] == "000001"
+    assert valuation_history["valuation_history"][0]["as_of_date"] == "2026-03-01"
+    assert active_policy["policy"]["policy_name"] == "baseline-current-allocation"
+    assert decision_result["workflow_name"] == "daily_decision"
+    assert decision_result["final_decision"] == "monitor"
+    assert decision_payload["decision_run"]["final_decision"] == "monitor"
+
+    persisted_decision = session.execute(select(DecisionRun)).scalar_one()
+    assert persisted_decision.id == decision_result["decision_run_id"]
+
+
+def test_portfolio_tools_record_decision_feedback(session: Session) -> None:
+    portfolio = seed_portfolio_with_valuation_history(session)
+    alpha_fund = session.execute(
+        select(FundMaster).where(FundMaster.fund_code == "000001")
+    ).scalar_one()
+    decision_run = DecisionRun(
+        portfolio_id=portfolio.id,
+        decision_date=date(2026, 3, 15),
+        summary="Add Alpha Fund.",
+        final_decision="rebalance_required",
+        trigger_source="tool_test",
+        actions_json=[
+            {
+                "action_type": "add",
+                "fund_id": alpha_fund.id,
+                "fund_code": alpha_fund.fund_code,
+                "fund_name": alpha_fund.fund_name,
+            }
+        ],
+        created_by_agent="DecisionService",
+    )
+    transaction = TransactionRecord(
+        portfolio_id=portfolio.id,
+        fund_id=alpha_fund.id,
+        trade_date=date(2026, 3, 15),
+        trade_type=TransactionType.BUY,
+        units=Decimal("2.000000"),
+        gross_amount=Decimal("3.0000"),
+        source_name="manual",
+    )
+    session.add_all([decision_run, transaction])
+    session.commit()
+
+    tools = PortfolioTools(session)
+    feedback_result = tools.record_decision_feedback(
+        decision_run_id=decision_run.id,
+        action_index=0,
+        feedback_status="executed",
+        feedback_date=date(2026, 3, 15),
+        created_by="tool-test",
+    )
+
+    assert feedback_result["decision_run_id"] == decision_run.id
+    assert feedback_result["feedback_status"] == "executed"
+    assert feedback_result["linked_transaction_ids"] == [transaction.id]
+
+    persisted_link = session.execute(select(DecisionTransactionLink)).scalar_one()
+    assert persisted_link.transaction_id == transaction.id
 
 
 def seed_portfolio_with_valuation_history(session: Session) -> Portfolio:

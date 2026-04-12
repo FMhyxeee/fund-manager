@@ -39,6 +39,7 @@ dev = [
 
 [project.scripts]
 fund-manager-api = "fund_manager.apps.api.main:run"
+fund-manager-admin = "fund_manager.admin.cli:main"
 fund-manager-mcp = "fund_manager.mcp.server:main"
 fund-manager-scheduler = "fund_manager.scheduler.cli:main"
 

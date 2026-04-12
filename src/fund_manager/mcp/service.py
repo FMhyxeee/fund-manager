@@ -12,11 +12,22 @@ from sqlalchemy import select
 from sqlalchemy.orm import Session
 
 from fund_manager.core.domain.decimal_constants import AMOUNT_QUANTIZER, RATIO_QUANTIZER, ZERO
-from fund_manager.core.serialization import serialize_for_json
 from fund_manager.core.domain.metrics import PortfolioValuePoint
-from fund_manager.core.services import AnalyticsService, PortfolioReadService
-from fund_manager.storage.models import FundMaster, NavSnapshot
-from fund_manager.storage.repo import FundMasterRepository
+from fund_manager.core.serialization import serialize_for_json
+from fund_manager.core.services import AnalyticsService, PolicyService, PortfolioReadService
+from fund_manager.storage.models import (
+    DecisionFeedback,
+    DecisionRun,
+    FundMaster,
+    NavSnapshot,
+    ReviewReport,
+)
+from fund_manager.storage.repo import (
+    DecisionFeedbackRepository,
+    DecisionRunRepository,
+    FundMasterRepository,
+    ReviewReportRepository,
+)
 
 RebalanceMode = Literal["none", "monthly"]
 
@@ -36,6 +47,10 @@ class FundManagerMCPService:
         self._session = session
         self._portfolio_read_service = PortfolioReadService(session)
         self._fund_repo = FundMasterRepository(session)
+        self._decision_run_repo = DecisionRunRepository(session)
+        self._decision_feedback_repo = DecisionFeedbackRepository(session)
+        self._review_report_repo = ReviewReportRepository(session)
+        self._policy_service = PolicyService(session)
         self._analytics_service = AnalyticsService()
 
     def list_portfolios(self) -> dict[str, Any]:
@@ -195,6 +210,109 @@ class FundManagerMCPService:
             },
         }
 
+    def get_active_policy(
+        self,
+        *,
+        as_of_date: date,
+        portfolio_id: int | None = None,
+        portfolio_name: str | None = None,
+    ) -> dict[str, Any]:
+        """Return the active policy for one portfolio on one date."""
+        portfolio = self._portfolio_read_service.resolve_portfolio_summary(
+            portfolio_id=portfolio_id,
+            portfolio_name=portfolio_name,
+        )
+        policy = self._policy_service.get_active_policy(
+            portfolio_id=portfolio.portfolio_id,
+            as_of_date=as_of_date,
+        )
+        if policy is None:
+            msg = "Active policy not found."
+            raise ValueError(msg)
+        return {
+            "portfolio": serialize_for_json(portfolio),
+            "as_of_date": as_of_date.isoformat(),
+            "policy": serialize_for_json(policy),
+        }
+
+    def list_decision_runs(
+        self,
+        *,
+        portfolio_id: int | None = None,
+        portfolio_name: str | None = None,
+        decision_date: date | None = None,
+        limit: int = 20,
+    ) -> dict[str, Any]:
+        """List recent decision runs, optionally scoped to one portfolio."""
+        resolved_portfolio = None
+        resolved_portfolio_id = portfolio_id
+        if portfolio_id is not None or portfolio_name is not None:
+            resolved_portfolio = self._portfolio_read_service.resolve_portfolio_summary(
+                portfolio_id=portfolio_id,
+                portfolio_name=portfolio_name,
+            )
+            resolved_portfolio_id = resolved_portfolio.portfolio_id
+
+        decision_runs = self._decision_run_repo.list_recent(
+            portfolio_id=resolved_portfolio_id,
+            decision_date=decision_date,
+            limit=limit,
+        )
+        return {
+            "portfolio": (
+                serialize_for_json(resolved_portfolio)
+                if resolved_portfolio is not None
+                else None
+            ),
+            "decision_date": decision_date.isoformat() if decision_date is not None else None,
+            "limit": limit,
+            "decision_runs": [
+                _build_decision_run_summary_payload(decision_run) for decision_run in decision_runs
+            ],
+        }
+
+    def get_decision_run(
+        self,
+        *,
+        decision_run_id: int,
+    ) -> dict[str, Any]:
+        """Return one persisted decision run in detail form."""
+        decision_run = self._decision_run_repo.get_detail_by_id(decision_run_id)
+        if decision_run is None:
+            msg = "Decision run not found."
+            raise ValueError(msg)
+        return {"decision_run": _build_decision_run_detail_payload(decision_run)}
+
+    def list_decision_feedback(
+        self,
+        *,
+        decision_run_id: int,
+    ) -> dict[str, Any]:
+        """Return append-only feedback history for one persisted decision run."""
+        decision_run = self._decision_run_repo.get_by_id(decision_run_id)
+        if decision_run is None:
+            msg = "Decision run not found."
+            raise ValueError(msg)
+        feedback_entries = self._decision_feedback_repo.list_for_decision_run(decision_run_id)
+        return {
+            "decision_run_id": decision_run_id,
+            "feedback_entries": [
+                _build_decision_feedback_payload(feedback) for feedback in feedback_entries
+            ],
+        }
+
+    def get_review_report(
+        self,
+        *,
+        report_id: int,
+    ) -> dict[str, Any]:
+        """Return one persisted weekly review report."""
+        review_report = self._review_report_repo.get_by_id(report_id)
+        if review_report is None:
+            msg = "Review report not found."
+            raise ValueError(msg)
+        return {"review_report": _build_review_report_payload(review_report)}
+
     def simulate_model_portfolio(
         self,
         *,
@@ -333,6 +451,93 @@ def _serialize_fund(fund: FundMaster) -> dict[str, Any]:
         "fund_status": fund.fund_status,
         "source_name": fund.source_name,
     }
+
+
+def _build_decision_run_summary_payload(decision_run: DecisionRun) -> dict[str, Any]:
+    return serialize_for_json(
+        {
+            "id": decision_run.id,
+            "portfolio_id": decision_run.portfolio_id,
+            "portfolio_code": decision_run.portfolio.portfolio_code,
+            "portfolio_name": decision_run.portfolio.portfolio_name,
+            "policy_id": decision_run.policy_id,
+            "policy_name": (
+                decision_run.policy.policy_name if decision_run.policy is not None else None
+            ),
+            "run_id": decision_run.run_id,
+            "workflow_name": decision_run.workflow_name,
+            "decision_date": decision_run.decision_date,
+            "trigger_source": decision_run.trigger_source,
+            "summary": decision_run.summary,
+            "final_decision": decision_run.final_decision,
+            "confidence_score": (
+                float(decision_run.confidence_score)
+                if decision_run.confidence_score is not None
+                else None
+            ),
+            "action_count": _count_actions(decision_run.actions_json),
+            "created_by_agent": decision_run.created_by_agent,
+            "created_at": decision_run.created_at,
+        }
+    )
+
+
+def _build_decision_run_detail_payload(decision_run: DecisionRun) -> dict[str, Any]:
+    payload = _build_decision_run_summary_payload(decision_run)
+    payload["actions_json"] = serialize_for_json(decision_run.actions_json)
+    payload["decision_summary_json"] = serialize_for_json(decision_run.decision_summary_json)
+    return payload
+
+
+def _build_decision_feedback_payload(feedback: DecisionFeedback) -> dict[str, Any]:
+    return serialize_for_json(
+        {
+            "id": feedback.id,
+            "decision_run_id": feedback.decision_run_id,
+            "portfolio_id": feedback.portfolio_id,
+            "fund_id": feedback.fund_id,
+            "fund_code": feedback.fund.fund_code if feedback.fund is not None else None,
+            "fund_name": feedback.fund.fund_name if feedback.fund is not None else None,
+            "action_index": feedback.action_index,
+            "action_type": feedback.action_type,
+            "feedback_status": feedback.feedback_status,
+            "feedback_date": feedback.feedback_date,
+            "note": feedback.note,
+            "created_by": feedback.created_by,
+            "linked_transaction_ids": sorted(
+                transaction_link.transaction_id for transaction_link in feedback.transaction_links
+            ),
+            "created_at": feedback.created_at,
+        }
+    )
+
+
+def _build_review_report_payload(review_report: ReviewReport) -> dict[str, Any]:
+    return serialize_for_json(
+        {
+            "id": review_report.id,
+            "portfolio_id": review_report.portfolio_id,
+            "portfolio_code": review_report.portfolio.portfolio_code,
+            "portfolio_name": review_report.portfolio.portfolio_name,
+            "run_id": review_report.run_id,
+            "workflow_name": review_report.workflow_name,
+            "period_type": review_report.period_type,
+            "period_start": review_report.period_start,
+            "period_end": review_report.period_end,
+            "report_markdown": review_report.report_markdown,
+            "summary_json": review_report.summary_json,
+            "created_by_agent": review_report.created_by_agent,
+            "created_at": review_report.created_at,
+        }
+    )
+
+
+def _count_actions(actions_json: list[dict[str, Any]] | dict[str, Any] | None) -> int:
+    if isinstance(actions_json, list):
+        return len(actions_json)
+    if isinstance(actions_json, dict):
+        return 1
+    return 0
 
 
 def _normalize_allocations(allocations: Sequence[ModelAllocation]) -> tuple[ModelAllocation, ...]:

@@ -2,9 +2,11 @@
 
 from __future__ import annotations
 
+from collections.abc import Sequence
 from datetime import date
 
-from sqlalchemy.orm import Session
+from sqlalchemy import select
+from sqlalchemy.orm import Session, joinedload, selectinload
 
 from fund_manager.storage.models import DecisionFeedback, DecisionFeedbackStatus
 
@@ -18,6 +20,19 @@ class DecisionFeedbackRepository:
     def get_by_id(self, feedback_id: int) -> DecisionFeedback | None:
         """Fetch one manual decision feedback row by primary key."""
         return self._session.get(DecisionFeedback, feedback_id)
+
+    def list_for_decision_run(self, decision_run_id: int) -> Sequence[DecisionFeedback]:
+        """Return append-only feedback history for one decision run."""
+        statement = (
+            select(DecisionFeedback)
+            .options(
+                joinedload(DecisionFeedback.fund),
+                selectinload(DecisionFeedback.transaction_links),
+            )
+            .where(DecisionFeedback.decision_run_id == decision_run_id)
+            .order_by(DecisionFeedback.id.asc())
+        )
+        return tuple(self._session.execute(statement).scalars().all())
 
     def append(
         self,

@@ -2,14 +2,13 @@
 
 from __future__ import annotations
 
+from collections.abc import Iterator
 from contextlib import contextmanager
 from datetime import date
 from decimal import Decimal
-from typing import Iterator
 
 from fund_manager.core.config import get_settings
 from fund_manager.core.services.polymarket_service import PolymarketService
-from fund_manager.data_adapters.polymarket_adapter import PolymarketAdapter
 from fund_manager.mcp.service import FundManagerMCPService, ModelAllocation
 from fund_manager.storage.db import get_session_factory
 
@@ -28,7 +27,7 @@ def _service_session() -> Iterator[FundManagerMCPService]:
         session.close()
 
 
-def create_server() -> "FastMCP":
+def create_server() -> FastMCP:
     """Create the MCP server instance when the optional dependency is installed."""
     if FastMCP is None:
         msg = (
@@ -103,6 +102,51 @@ def create_server() -> "FastMCP":
                 portfolio_id=portfolio_id,
                 portfolio_name=portfolio_name,
             )
+
+    @server.tool()
+    def portfolio_active_policy(
+        as_of_date: str,
+        portfolio_id: int | None = None,
+        portfolio_name: str | None = None,
+    ) -> dict:
+        with _service_session() as service:
+            return service.get_active_policy(
+                as_of_date=date.fromisoformat(as_of_date),
+                portfolio_id=portfolio_id,
+                portfolio_name=portfolio_name,
+            )
+
+    @server.tool()
+    def decision_run_list(
+        portfolio_id: int | None = None,
+        portfolio_name: str | None = None,
+        decision_date: str | None = None,
+        limit: int = 20,
+    ) -> dict:
+        with _service_session() as service:
+            return service.list_decision_runs(
+                portfolio_id=portfolio_id,
+                portfolio_name=portfolio_name,
+                decision_date=(
+                    date.fromisoformat(decision_date) if decision_date is not None else None
+                ),
+                limit=limit,
+            )
+
+    @server.tool()
+    def decision_run_get(decision_run_id: int) -> dict:
+        with _service_session() as service:
+            return service.get_decision_run(decision_run_id=decision_run_id)
+
+    @server.tool()
+    def decision_feedback_list(decision_run_id: int) -> dict:
+        with _service_session() as service:
+            return service.list_decision_feedback(decision_run_id=decision_run_id)
+
+    @server.tool()
+    def review_report_get(report_id: int) -> dict:
+        with _service_session() as service:
+            return service.get_review_report(report_id=report_id)
 
     @server.tool()
     def fund_profile(fund_code: str) -> dict:
