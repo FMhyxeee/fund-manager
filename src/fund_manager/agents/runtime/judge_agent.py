@@ -66,6 +66,7 @@ class ManualJudgeAgent:
         *,
         prompt_name: str = "judge_agent.md",
     ) -> None:
+        # Placeholder manual runtime until a synthesis-capable judge agent is wired in.
         self._prompt = load_prompt_definition(prompt_name)
 
     @property

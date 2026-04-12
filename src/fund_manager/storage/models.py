@@ -59,6 +59,14 @@ class ReportPeriodType(StrEnum):
     MONTHLY = "monthly"
 
 
+class DecisionFeedbackStatus(StrEnum):
+    """Supported manual feedback states for deterministic decision actions."""
+
+    EXECUTED = "executed"
+    SKIPPED = "skipped"
+    DEFERRED = "deferred"
+
+
 class CreatedAtMixin:
     """Timestamp for append-only records."""
 
@@ -106,6 +114,8 @@ class FundMaster(UpdatedAtMixin, Base):
     transactions: Mapped[list[TransactionRecord]] = relationship(back_populates="fund")
     nav_snapshots: Mapped[list[NavSnapshot]] = relationship(back_populates="fund")
     position_lots: Mapped[list[PositionLot]] = relationship(back_populates="fund")
+    policy_targets: Mapped[list[PortfolioPolicyTarget]] = relationship(back_populates="fund")
+    decision_feedbacks: Mapped[list[DecisionFeedback]] = relationship(back_populates="fund")
 
 
 class Portfolio(UpdatedAtMixin, Base):
@@ -128,6 +138,9 @@ class Portfolio(UpdatedAtMixin, Base):
     transactions: Mapped[list[TransactionRecord]] = relationship(back_populates="portfolio")
     position_lots: Mapped[list[PositionLot]] = relationship(back_populates="portfolio")
     portfolio_snapshots: Mapped[list[PortfolioSnapshot]] = relationship(back_populates="portfolio")
+    portfolio_policies: Mapped[list[PortfolioPolicy]] = relationship(back_populates="portfolio")
+    decision_runs: Mapped[list[DecisionRun]] = relationship(back_populates="portfolio")
+    decision_feedbacks: Mapped[list[DecisionFeedback]] = relationship(back_populates="portfolio")
     review_reports: Mapped[list[ReviewReport]] = relationship(back_populates="portfolio")
     strategy_proposals: Mapped[list[StrategyProposal]] = relationship(back_populates="portfolio")
     debate_logs: Mapped[list[AgentDebateLog]] = relationship(back_populates="portfolio")
@@ -170,6 +183,9 @@ class TransactionRecord(CreatedAtMixin, Base):
     portfolio: Mapped[Portfolio] = relationship(back_populates="transactions")
     fund: Mapped[FundMaster] = relationship(back_populates="transactions")
     position_lots: Mapped[list[PositionLot]] = relationship(back_populates="source_transaction")
+    decision_links: Mapped[list[DecisionTransactionLink]] = relationship(
+        back_populates="transaction"
+    )
 
 
 class PositionLot(CreatedAtMixin, Base):
@@ -259,6 +275,146 @@ class PortfolioSnapshot(CreatedAtMixin, Base):
     max_drawdown_ratio: Mapped[Decimal | None] = mapped_column(RATIO_NUMERIC)
 
     portfolio: Mapped[Portfolio] = relationship(back_populates="portfolio_snapshots")
+
+
+class PortfolioPolicy(CreatedAtMixin, Base):
+    """Append-only portfolio policy snapshots that govern deterministic decisions."""
+
+    __tablename__ = "portfolio_policy"
+    __table_args__ = (
+        Index("ix_portfolio_policy__portfolio_id__effective_from", "portfolio_id", "effective_from"),
+        Index("ix_portfolio_policy__run_id", "run_id"),
+    )
+
+    id: Mapped[int] = mapped_column(Integer, primary_key=True)
+    portfolio_id: Mapped[int] = mapped_column(ForeignKey("portfolio.id"), nullable=False)
+    run_id: Mapped[str | None] = mapped_column(String(64))
+    policy_name: Mapped[str] = mapped_column(String(128), nullable=False)
+    effective_from: Mapped[date] = mapped_column(Date, nullable=False)
+    effective_to: Mapped[date | None] = mapped_column(Date)
+    rebalance_threshold_ratio: Mapped[Decimal] = mapped_column(RATIO_NUMERIC, nullable=False)
+    max_single_position_weight_ratio: Mapped[Decimal | None] = mapped_column(RATIO_NUMERIC)
+    created_by: Mapped[str | None] = mapped_column(String(64))
+    notes: Mapped[str | None] = mapped_column(Text)
+
+    portfolio: Mapped[Portfolio] = relationship(back_populates="portfolio_policies")
+    targets: Mapped[list[PortfolioPolicyTarget]] = relationship(
+        back_populates="policy",
+        cascade="all, delete-orphan",
+    )
+    decision_runs: Mapped[list[DecisionRun]] = relationship(back_populates="policy")
+
+
+class PortfolioPolicyTarget(CreatedAtMixin, Base):
+    """Fund-level target weights and bounds attached to one portfolio policy."""
+
+    __tablename__ = "portfolio_policy_target"
+    __table_args__ = (
+        UniqueConstraint("policy_id", "fund_id", name="uq_portfolio_policy_target__policy_id__fund_id"),
+        Index("ix_portfolio_policy_target__policy_id__fund_id", "policy_id", "fund_id"),
+    )
+
+    id: Mapped[int] = mapped_column(Integer, primary_key=True)
+    policy_id: Mapped[int] = mapped_column(ForeignKey("portfolio_policy.id"), nullable=False)
+    fund_id: Mapped[int] = mapped_column(ForeignKey("fund_master.id"), nullable=False)
+    target_weight_ratio: Mapped[Decimal] = mapped_column(RATIO_NUMERIC, nullable=False)
+    min_weight_ratio: Mapped[Decimal | None] = mapped_column(RATIO_NUMERIC)
+    max_weight_ratio: Mapped[Decimal | None] = mapped_column(RATIO_NUMERIC)
+    add_allowed: Mapped[bool] = mapped_column(Boolean, nullable=False, default=True)
+    trim_allowed: Mapped[bool] = mapped_column(Boolean, nullable=False, default=True)
+
+    policy: Mapped[PortfolioPolicy] = relationship(back_populates="targets")
+    fund: Mapped[FundMaster] = relationship(back_populates="policy_targets")
+
+
+class DecisionRun(CreatedAtMixin, Base):
+    """Append-only deterministic decision outputs generated from policy + facts."""
+
+    __tablename__ = "decision_run"
+    __table_args__ = (
+        Index("ix_decision_run__portfolio_id__decision_date", "portfolio_id", "decision_date"),
+        Index("ix_decision_run__run_id", "run_id"),
+        Index("ix_decision_run__workflow_name__decision_date", "workflow_name", "decision_date"),
+    )
+
+    id: Mapped[int] = mapped_column(Integer, primary_key=True)
+    portfolio_id: Mapped[int] = mapped_column(ForeignKey("portfolio.id"), nullable=False)
+    policy_id: Mapped[int | None] = mapped_column(ForeignKey("portfolio_policy.id"))
+    run_id: Mapped[str | None] = mapped_column(String(64))
+    workflow_name: Mapped[str | None] = mapped_column(String(64))
+    decision_date: Mapped[date] = mapped_column(Date, nullable=False)
+    trigger_source: Mapped[str | None] = mapped_column(String(32))
+    summary: Mapped[str] = mapped_column(Text, nullable=False)
+    final_decision: Mapped[str] = mapped_column(String(64), nullable=False)
+    confidence_score: Mapped[Decimal | None] = mapped_column(CONFIDENCE_NUMERIC)
+    actions_json: Mapped[list[dict[str, Any]] | dict[str, Any] | None] = mapped_column(JSON)
+    decision_summary_json: Mapped[dict[str, Any] | list[Any] | None] = mapped_column(JSON)
+    created_by_agent: Mapped[str | None] = mapped_column(String(64))
+
+    portfolio: Mapped[Portfolio] = relationship(back_populates="decision_runs")
+    policy: Mapped[PortfolioPolicy | None] = relationship(back_populates="decision_runs")
+    feedback_entries: Mapped[list[DecisionFeedback]] = relationship(back_populates="decision_run")
+
+
+class DecisionFeedback(CreatedAtMixin, Base):
+    """Append-only manual feedback captured against one deterministic decision action."""
+
+    __tablename__ = "decision_feedback"
+    __table_args__ = (
+        Index("ix_decision_feedback__decision_run_id__action_index", "decision_run_id", "action_index"),
+        Index("ix_decision_feedback__portfolio_id__feedback_date", "portfolio_id", "feedback_date"),
+        Index("ix_decision_feedback__fund_id__feedback_date", "fund_id", "feedback_date"),
+    )
+
+    id: Mapped[int] = mapped_column(Integer, primary_key=True)
+    decision_run_id: Mapped[int] = mapped_column(ForeignKey("decision_run.id"), nullable=False)
+    portfolio_id: Mapped[int] = mapped_column(ForeignKey("portfolio.id"), nullable=False)
+    fund_id: Mapped[int | None] = mapped_column(ForeignKey("fund_master.id"))
+    action_index: Mapped[int] = mapped_column(Integer, nullable=False)
+    action_type: Mapped[str] = mapped_column(String(64), nullable=False)
+    feedback_status: Mapped[DecisionFeedbackStatus] = mapped_column(
+        SqlEnum(
+            DecisionFeedbackStatus,
+            name="decision_feedback_status_enum",
+            native_enum=False,
+            length=32,
+            values_callable=_enum_values,
+        ),
+        nullable=False,
+    )
+    feedback_date: Mapped[date] = mapped_column(Date, nullable=False)
+    note: Mapped[str | None] = mapped_column(Text)
+    created_by: Mapped[str | None] = mapped_column(String(64))
+
+    decision_run: Mapped[DecisionRun] = relationship(back_populates="feedback_entries")
+    portfolio: Mapped[Portfolio] = relationship(back_populates="decision_feedbacks")
+    fund: Mapped[FundMaster | None] = relationship(back_populates="decision_feedbacks")
+    transaction_links: Mapped[list[DecisionTransactionLink]] = relationship(
+        back_populates="feedback",
+        cascade="all, delete-orphan",
+    )
+
+
+class DecisionTransactionLink(CreatedAtMixin, Base):
+    """Append-only links between manual feedback and authoritative transactions."""
+
+    __tablename__ = "decision_transaction_link"
+    __table_args__ = (
+        UniqueConstraint(
+            "transaction_id",
+            name="uq_decision_transaction_link__transaction_id",
+        ),
+        Index("ix_decision_transaction_link__feedback_id", "feedback_id"),
+    )
+
+    id: Mapped[int] = mapped_column(Integer, primary_key=True)
+    feedback_id: Mapped[int] = mapped_column(ForeignKey("decision_feedback.id"), nullable=False)
+    transaction_id: Mapped[int] = mapped_column(ForeignKey("transaction.id"), nullable=False)
+    match_source: Mapped[str | None] = mapped_column(String(32))
+    match_reason: Mapped[str | None] = mapped_column(Text)
+
+    feedback: Mapped[DecisionFeedback] = relationship(back_populates="transaction_links")
+    transaction: Mapped[TransactionRecord] = relationship(back_populates="decision_links")
 
 
 class ReviewReport(CreatedAtMixin, Base):
@@ -374,9 +530,15 @@ class SystemEventLog(CreatedAtMixin, Base):
 __all__ = [
     "AgentDebateLog",
     "Base",
+    "DecisionFeedback",
+    "DecisionFeedbackStatus",
+    "DecisionRun",
+    "DecisionTransactionLink",
     "FundMaster",
     "NavSnapshot",
     "Portfolio",
+    "PortfolioPolicy",
+    "PortfolioPolicyTarget",
     "PortfolioSnapshot",
     "PositionLot",
     "ReportPeriodType",

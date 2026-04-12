@@ -8,6 +8,8 @@ from decimal import Decimal
 from typing import Iterator
 
 from fund_manager.core.config import get_settings
+from fund_manager.core.services.polymarket_service import PolymarketService
+from fund_manager.data_adapters.polymarket_adapter import PolymarketAdapter
 from fund_manager.mcp.service import FundManagerMCPService, ModelAllocation
 from fund_manager.storage.db import get_session_factory
 
@@ -115,6 +117,29 @@ def create_server() -> "FastMCP":
                 start_date=date.fromisoformat(start_date),
                 end_date=date.fromisoformat(end_date),
             )
+
+    @server.tool()
+    def polymarket_search_events(query: str, limit: int = 10) -> dict:
+        """Search Polymarket prediction market events by keyword.
+
+        Returns active events with their sub-markets and current prices.
+        """
+        with PolymarketService() as svc:
+            return {"events": svc.search_events(query, limit=limit)}
+
+    @server.tool()
+    def polymarket_estimate_time(slug: str) -> dict:
+        """Estimate when a Polymarket event will occur based on its time-ladder markets.
+
+        Given an event slug (e.g. 'microstrategy-sell-any-bitcoin-in-2025'),
+        fetches all sub-markets with different deadlines, reads their Yes prices
+        as cumulative probabilities, and computes a probability-weighted expected date.
+
+        Returns the event title, time ladder (date + probability), estimated date,
+        and the estimation method used.
+        """
+        with PolymarketService() as svc:
+            return svc.estimate_event_time(slug)
 
     @server.tool()
     def simulate_model_portfolio(

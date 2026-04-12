@@ -2,10 +2,9 @@
 
 from __future__ import annotations
 
-from collections.abc import Mapping, Sequence
-from dataclasses import asdict, dataclass, is_dataclass
+from collections.abc import Sequence
+from dataclasses import dataclass
 from datetime import date
-from decimal import Decimal
 from typing import Any, cast
 from uuid import uuid4
 
@@ -18,6 +17,7 @@ from fund_manager.agents.runtime import (
     ReviewPositionFact,
     WeeklyReviewFacts,
 )
+from fund_manager.core.serialization import serialize_for_json
 from fund_manager.core.domain.metrics import PortfolioValuePoint
 from fund_manager.core.services import AnalyticsService, PortfolioService
 from fund_manager.reports import WeeklyReviewMarkdownExporter
@@ -27,6 +27,12 @@ from fund_manager.storage.repo import (
     PortfolioRepository,
     ReviewReportRepository,
     SystemEventLogRepository,
+)
+from fund_manager.storage.repo.protocols import (
+    AgentDebateLogRepositoryProtocol,
+    PortfolioRepositoryProtocol,
+    ReviewReportRepositoryProtocol,
+    SystemEventLogRepositoryProtocol,
 )
 
 WORKFLOW_NAME = "weekly_review"
@@ -59,16 +65,20 @@ class WeeklyReviewWorkflow:
         analytics_service: AnalyticsService | None = None,
         review_agent: ReviewAgent | None = None,
         markdown_exporter: WeeklyReviewMarkdownExporter | None = None,
+        portfolio_repo: PortfolioRepositoryProtocol | None = None,
+        review_report_repo: ReviewReportRepositoryProtocol | None = None,
+        agent_log_repo: AgentDebateLogRepositoryProtocol | None = None,
+        system_event_log_repo: SystemEventLogRepositoryProtocol | None = None,
     ) -> None:
         self._session = session
         self._portfolio_service = portfolio_service or PortfolioService(session)
         self._analytics_service = analytics_service or AnalyticsService()
         self._review_agent = review_agent or ManualReviewAgent()
         self._markdown_exporter = markdown_exporter or WeeklyReviewMarkdownExporter()
-        self._portfolio_repo = PortfolioRepository(session)
-        self._review_report_repo = ReviewReportRepository(session)
-        self._agent_log_repo = AgentDebateLogRepository(session)
-        self._system_event_log_repo = SystemEventLogRepository(session)
+        self._portfolio_repo = portfolio_repo or PortfolioRepository(session)
+        self._review_report_repo = review_report_repo or ReviewReportRepository(session)
+        self._agent_log_repo = agent_log_repo or AgentDebateLogRepository(session)
+        self._system_event_log_repo = system_event_log_repo or SystemEventLogRepository(session)
 
     def run(
         self,
@@ -459,23 +469,6 @@ def run_manual_weekly_review(
         period_end=period_end,
         trigger_source=trigger_source,
     )
-
-
-def serialize_for_json(value: Any) -> Any:
-    """Convert dataclasses, dates, and decimals into JSON-safe values."""
-    if is_dataclass(value) and not isinstance(value, type):
-        return serialize_for_json(asdict(value))
-    if isinstance(value, Decimal):
-        return format(value, "f")
-    if isinstance(value, date):
-        return value.isoformat()
-    if isinstance(value, Mapping):
-        return {str(key): serialize_for_json(item) for key, item in value.items()}
-    if isinstance(value, tuple):
-        return [serialize_for_json(item) for item in value]
-    if isinstance(value, list):
-        return [serialize_for_json(item) for item in value]
-    return value
 
 
 __all__ = [

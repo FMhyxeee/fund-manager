@@ -12,7 +12,20 @@ from sqlalchemy.orm import Session, sessionmaker
 
 from fund_manager.apps.api.dependencies import get_db
 from fund_manager.apps.api.main import app
-from fund_manager.storage.models import Base, FundMaster, Portfolio, PositionLot
+from fund_manager.apps.api.routes.decisions import (
+    DecisionFeedbackCreateRequest,
+    create_decision_feedback,
+)
+from fund_manager.storage.models import (
+    Base,
+    DecisionRun,
+    DecisionTransactionLink,
+    FundMaster,
+    Portfolio,
+    PositionLot,
+    TransactionRecord,
+    TransactionType,
+)
 
 
 @pytest.fixture()
@@ -150,3 +163,58 @@ def test_import_holdings_dry_run(client: TestClient) -> None:
     assert response.status_code == 200
     data = response.json()
     assert data["dry_run"] is True
+
+
+def test_create_decision_feedback_links_existing_transaction(
+    session: Session,
+) -> None:
+    portfolio = Portfolio(portfolio_code="main", portfolio_name="Main Portfolio")
+    fund = FundMaster(fund_code="000001", fund_name="Test Fund", source_name="test")
+    session.add_all([portfolio, fund])
+    session.flush()
+
+    decision_run = DecisionRun(
+        portfolio_id=portfolio.id,
+        decision_date=date(2026, 3, 15),
+        summary="Add Test Fund.",
+        final_decision="rebalance_required",
+        trigger_source="api_test",
+        actions_json=[
+            {
+                "action_type": "add",
+                "fund_id": fund.id,
+                "fund_code": fund.fund_code,
+                "fund_name": fund.fund_name,
+            }
+        ],
+        created_by_agent="DecisionService",
+    )
+    transaction = TransactionRecord(
+        portfolio_id=portfolio.id,
+        fund_id=fund.id,
+        trade_date=date(2026, 3, 15),
+        trade_type=TransactionType.BUY,
+        units=Decimal("10.000000"),
+        gross_amount=Decimal("12.0000"),
+        source_name="manual",
+    )
+    session.add_all([decision_run, transaction])
+    session.commit()
+
+    response = create_decision_feedback(
+        decision_run.id,
+        DecisionFeedbackCreateRequest(
+            action_index=0,
+            feedback_status="executed",
+            feedback_date=date(2026, 3, 15),
+            note="done",
+            created_by="api-test",
+        ),
+        session,
+    )
+
+    assert response.decision_run_id == decision_run.id
+    assert response.action_type == "add"
+    assert response.linked_transaction_ids == [transaction.id]
+    assert response.feedback_status.value == "executed"
+    assert session.query(DecisionTransactionLink).count() == 1

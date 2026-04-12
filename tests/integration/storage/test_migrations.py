@@ -36,9 +36,14 @@ def test_alembic_upgrade_creates_v1_schema(tmp_path: Path) -> None:
     assert {
         "agent_debate_log",
         "alembic_version",
+        "decision_feedback",
+        "decision_run",
+        "decision_transaction_link",
         "fund_master",
         "nav_snapshot",
         "portfolio",
+        "portfolio_policy",
+        "portfolio_policy_target",
         "portfolio_snapshot",
         "position_lot",
         "review_report",
@@ -50,7 +55,7 @@ def test_alembic_upgrade_creates_v1_schema(tmp_path: Path) -> None:
     with engine.connect() as connection:
         revision = connection.execute(text("SELECT version_num FROM alembic_version")).scalar_one()
 
-    assert revision == "20260331_0001"
+    assert revision == "20260412_0003"
 
 
 def test_migrated_enum_storage_matches_orm_mapping(tmp_path: Path) -> None:

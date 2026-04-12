@@ -15,9 +15,7 @@ from dataclasses import dataclass
 from datetime import date
 from decimal import ROUND_HALF_UP, Decimal
 
-MONEY_QUANTIZER = Decimal("0.0001")
-RATIO_QUANTIZER = Decimal("0.000001")
-ZERO = Decimal("0")
+from fund_manager.core.domain.decimal_constants import MONEY_QUANTIZER, RATIO_QUANTIZER, ZERO
 
 ACCOUNTING_ASSUMPTIONS_NOTE = (
     "Returns are simple holding-period returns expressed as ratios, max drawdown "

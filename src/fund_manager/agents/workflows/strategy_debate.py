@@ -23,7 +23,7 @@ from fund_manager.agents.runtime import (
     StrategyDebateFacts,
     StrategyProposalOutput,
 )
-from fund_manager.agents.workflows.weekly_review import serialize_for_json
+from fund_manager.core.serialization import serialize_for_json
 from fund_manager.core.domain.metrics import PortfolioValuePoint
 from fund_manager.core.services import AnalyticsService, PortfolioService
 from fund_manager.storage.repo import (
@@ -31,6 +31,12 @@ from fund_manager.storage.repo import (
     PortfolioRepository,
     StrategyProposalRepository,
     SystemEventLogRepository,
+)
+from fund_manager.storage.repo.protocols import (
+    AgentDebateLogRepositoryProtocol,
+    PortfolioRepositoryProtocol,
+    StrategyProposalRepositoryProtocol,
+    SystemEventLogRepositoryProtocol,
 )
 
 WORKFLOW_NAME = "strategy_debate"
@@ -65,6 +71,10 @@ class StrategyDebateWorkflow:
         strategy_agent: StrategyAgent | None = None,
         challenger_agent: ChallengerAgent | None = None,
         judge_agent: JudgeAgent | None = None,
+        portfolio_repo: PortfolioRepositoryProtocol | None = None,
+        agent_log_repo: AgentDebateLogRepositoryProtocol | None = None,
+        strategy_proposal_repo: StrategyProposalRepositoryProtocol | None = None,
+        system_event_log_repo: SystemEventLogRepositoryProtocol | None = None,
     ) -> None:
         self._session = session
         self._portfolio_service = portfolio_service or PortfolioService(session)
@@ -72,10 +82,12 @@ class StrategyDebateWorkflow:
         self._strategy_agent = strategy_agent or ManualStrategyAgent()
         self._challenger_agent = challenger_agent or ManualChallengerAgent()
         self._judge_agent = judge_agent or ManualJudgeAgent()
-        self._portfolio_repo = PortfolioRepository(session)
-        self._agent_log_repo = AgentDebateLogRepository(session)
-        self._strategy_proposal_repo = StrategyProposalRepository(session)
-        self._system_event_log_repo = SystemEventLogRepository(session)
+        self._portfolio_repo = portfolio_repo or PortfolioRepository(session)
+        self._agent_log_repo = agent_log_repo or AgentDebateLogRepository(session)
+        self._strategy_proposal_repo = strategy_proposal_repo or StrategyProposalRepository(
+            session
+        )
+        self._system_event_log_repo = system_event_log_repo or SystemEventLogRepository(session)
 
     def run(
         self,

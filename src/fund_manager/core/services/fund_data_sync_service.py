@@ -4,10 +4,10 @@ from __future__ import annotations
 
 from dataclasses import dataclass
 from datetime import date
-from decimal import Decimal
 
 from sqlalchemy.orm import Session
 
+from fund_manager.core.domain.decimal_constants import HUNDRED
 from fund_manager.data_adapters.akshare_adapter import (
     AkshareAdapterError,
     AkshareFundDataAdapter,
@@ -20,8 +20,11 @@ from fund_manager.storage.repo import (
     NavSnapshotRepository,
     PositionLotRepository,
 )
-
-HUNDRED = Decimal("100")
+from fund_manager.storage.repo.protocols import (
+    FundMasterRepositoryProtocol,
+    NavSnapshotRepositoryProtocol,
+    PositionLotRepositoryProtocol,
+)
 
 
 @dataclass(frozen=True)
@@ -80,12 +83,15 @@ class FundDataSyncService:
         session: Session,
         *,
         adapter: AkshareFundDataAdapter | None = None,
+        position_lot_repo: PositionLotRepositoryProtocol | None = None,
+        fund_master_repo: FundMasterRepositoryProtocol | None = None,
+        nav_snapshot_repo: NavSnapshotRepositoryProtocol | None = None,
     ) -> None:
         self._session = session
         self._adapter = adapter or AkshareFundDataAdapter()
-        self._position_lot_repo = PositionLotRepository(session)
-        self._fund_master_repo = FundMasterRepository(session)
-        self._nav_snapshot_repo = NavSnapshotRepository(session)
+        self._position_lot_repo = position_lot_repo or PositionLotRepository(session)
+        self._fund_master_repo = fund_master_repo or FundMasterRepository(session)
+        self._nav_snapshot_repo = nav_snapshot_repo or NavSnapshotRepository(session)
 
     def sync_portfolio_funds(
         self,

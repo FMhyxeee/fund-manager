@@ -2,7 +2,7 @@
 
 from __future__ import annotations
 
-from collections.abc import Iterable, Sequence
+from collections.abc import Sequence
 from dataclasses import dataclass
 from datetime import date
 from decimal import Decimal
@@ -11,10 +11,10 @@ from typing import Any, Literal
 from sqlalchemy import select
 from sqlalchemy.orm import Session
 
-from fund_manager.agents.tools import PortfolioSummaryDTO, PortfolioTools
-from fund_manager.agents.workflows import serialize_for_json
+from fund_manager.core.domain.decimal_constants import AMOUNT_QUANTIZER, RATIO_QUANTIZER, ZERO
+from fund_manager.core.serialization import serialize_for_json
 from fund_manager.core.domain.metrics import PortfolioValuePoint
-from fund_manager.core.services import AnalyticsService
+from fund_manager.core.services import AnalyticsService, PortfolioReadService
 from fund_manager.storage.models import FundMaster, NavSnapshot
 from fund_manager.storage.repo import FundMasterRepository
 
@@ -34,13 +34,13 @@ class FundManagerMCPService:
 
     def __init__(self, session: Session) -> None:
         self._session = session
-        self._portfolio_tools = PortfolioTools(session)
+        self._portfolio_read_service = PortfolioReadService(session)
         self._fund_repo = FundMasterRepository(session)
         self._analytics_service = AnalyticsService()
 
     def list_portfolios(self) -> dict[str, Any]:
         """List portfolios in stable display order."""
-        portfolios = self._portfolio_tools.list_portfolios()
+        portfolios = self._portfolio_read_service.list_portfolios()
         return {"portfolios": serialize_for_json(portfolios)}
 
     def get_portfolio_snapshot(
@@ -51,11 +51,15 @@ class FundManagerMCPService:
         portfolio_name: str | None = None,
     ) -> dict[str, Any]:
         """Return a JSON-safe portfolio snapshot."""
-        return self._portfolio_tools.get_portfolio_snapshot(
+        result = self._portfolio_read_service.get_portfolio_snapshot(
             as_of_date=as_of_date,
             portfolio_id=portfolio_id,
             portfolio_name=portfolio_name,
         )
+        return {
+            "portfolio": serialize_for_json(result.portfolio),
+            "snapshot": serialize_for_json(result.snapshot.to_dict()),
+        }
 
     def get_position_breakdown(
         self,
@@ -65,11 +69,16 @@ class FundManagerMCPService:
         portfolio_name: str | None = None,
     ) -> dict[str, Any]:
         """Return only the position breakdown for one portfolio."""
-        return self._portfolio_tools.get_position_breakdown(
+        result = self._portfolio_read_service.get_position_breakdown(
             as_of_date=as_of_date,
             portfolio_id=portfolio_id,
             portfolio_name=portfolio_name,
         )
+        return {
+            "portfolio": serialize_for_json(result.portfolio),
+            "as_of_date": result.as_of_date.isoformat(),
+            "positions": serialize_for_json(result.positions),
+        }
 
     def get_fund_profile(self, *, fund_code: str) -> dict[str, Any]:
         """Return one fund master record as a JSON-safe payload."""
@@ -128,12 +137,13 @@ class FundManagerMCPService:
         portfolio_name: str | None = None,
     ) -> dict[str, Any]:
         """Return valuation history assembled from canonical lots and NAV snapshots."""
-        snapshot_payload = self._portfolio_tools.get_portfolio_snapshot(
+        snapshot_result = self._portfolio_read_service.get_portfolio_snapshot(
             as_of_date=end_date,
             portfolio_id=portfolio_id,
             portfolio_name=portfolio_name,
         )
-        valuation_history = snapshot_payload["snapshot"]["valuation_history"]
+        snapshot_payload = serialize_for_json(snapshot_result.snapshot.to_dict())
+        valuation_history = snapshot_payload["valuation_history"]
         if start_date is not None:
             valuation_history = [
                 point
@@ -141,7 +151,7 @@ class FundManagerMCPService:
                 if point["as_of_date"] >= start_date.isoformat()
             ]
         return {
-            "portfolio": snapshot_payload["portfolio"],
+            "portfolio": serialize_for_json(snapshot_result.portfolio),
             "start_date": start_date.isoformat() if start_date is not None else None,
             "end_date": end_date.isoformat(),
             "valuation_history": valuation_history,
@@ -155,20 +165,20 @@ class FundManagerMCPService:
         portfolio_name: str | None = None,
     ) -> dict[str, Any]:
         """Return a compact metrics summary derived from one portfolio snapshot."""
-        snapshot_payload = self._portfolio_tools.get_portfolio_snapshot(
+        snapshot_result = self._portfolio_read_service.get_portfolio_snapshot(
             as_of_date=as_of_date,
             portfolio_id=portfolio_id,
             portfolio_name=portfolio_name,
         )
-        snapshot = snapshot_payload["snapshot"]
+        snapshot = serialize_for_json(snapshot_result.snapshot.to_dict())
         positions = snapshot["positions"]
         top_positions = sorted(
             positions,
-            key=lambda position: Decimal(position["current_value_amount"] or "0"),
+            key=lambda position: Decimal(position["current_value_amount"] or str(ZERO)),
             reverse=True,
         )[:5]
         return {
-            "portfolio": snapshot_payload["portfolio"],
+            "portfolio": serialize_for_json(snapshot_result.portfolio),
             "as_of_date": as_of_date.isoformat(),
             "metrics": {
                 "position_count": snapshot["position_count"],
@@ -329,21 +339,21 @@ def _normalize_allocations(allocations: Sequence[ModelAllocation]) -> tuple[Mode
     if not allocations:
         msg = "allocations must not be empty."
         raise ValueError(msg)
-    total_weight = sum((allocation.weight for allocation in allocations), start=Decimal("0"))
-    if total_weight <= Decimal("0"):
+    total_weight = sum((allocation.weight for allocation in allocations), start=ZERO)
+    if total_weight <= ZERO:
         msg = "allocation weights must sum to a positive value."
         raise ValueError(msg)
     return tuple(
         ModelAllocation(
             fund_code=allocation.fund_code,
-            weight=(allocation.weight / total_weight).quantize(Decimal("0.000001")),
+            weight=(allocation.weight / total_weight).quantize(RATIO_QUANTIZER),
         )
         for allocation in allocations
     )
 
 
 def _quantize_decimal(value: Decimal) -> Decimal:
-    return value.quantize(Decimal("0.0001"))
+    return value.quantize(AMOUNT_QUANTIZER)
 
 
 __all__ = ["FundManagerMCPService", "ModelAllocation", "RebalanceMode"]

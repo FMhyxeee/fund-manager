@@ -75,6 +75,37 @@ def make_daily_snapshot_job(
     )
 
 
+def make_daily_decision_job(
+    session: Any,
+    *,
+    as_of_date: date | None = None,
+) -> ScheduleEntry:
+    from fund_manager.agents.workflows.daily_decision import DailyDecisionWorkflow
+
+    as_of = as_of_date or date.today()
+
+    def job_fn(*, portfolio_id: int, trigger_source: str) -> dict[str, Any]:
+        workflow = DailyDecisionWorkflow(session)
+        result = workflow.run(
+            portfolio_id=portfolio_id,
+            decision_date=as_of,
+            trigger_source=trigger_source,
+        )
+        return {
+            "decision_run_id": result.decision_run_record_id,
+            "run_id": result.run_id,
+            "final_decision": result.decision.final_decision,
+            "action_count": result.decision.action_count,
+        }
+
+    return ScheduleEntry(
+        name="daily_decision",
+        frequency=JobFrequency.DAILY,
+        job_fn=job_fn,
+        description="Evaluate the portfolio against the active policy and persist actions.",
+    )
+
+
 def make_weekly_review_job(
     session: Any,
     *,
@@ -148,5 +179,6 @@ def register_default_jobs(
             fund_data_sync_service_factory=fund_data_sync_service_factory,
         )
     )
+    registry.register(make_daily_decision_job(session, as_of_date=as_of_date))
     registry.register(make_weekly_review_job(session, as_of_date=as_of_date))
     registry.register(make_monthly_strategy_job(session, as_of_date=as_of_date))

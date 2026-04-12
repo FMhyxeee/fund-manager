@@ -17,6 +17,7 @@ dist/
 
 data/
 var/
+logs/
 
 .idea/
 .vscode/

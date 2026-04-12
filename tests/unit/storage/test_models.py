@@ -8,7 +8,15 @@ from decimal import Decimal
 from sqlalchemy import create_engine, inspect, select, text
 from sqlalchemy.orm import Session
 
-from fund_manager.storage.models import Base, FundMaster, Portfolio, ReportPeriodType, ReviewReport, TransactionRecord, TransactionType
+from fund_manager.storage.models import (
+    Base,
+    FundMaster,
+    Portfolio,
+    ReportPeriodType,
+    ReviewReport,
+    TransactionRecord,
+    TransactionType,
+)
 
 
 def test_metadata_create_all_builds_expected_tables() -> None:
@@ -20,9 +28,14 @@ def test_metadata_create_all_builds_expected_tables() -> None:
     inspector = inspect(engine)
     assert set(inspector.get_table_names()) == {
         "agent_debate_log",
+        "decision_feedback",
+        "decision_run",
+        "decision_transaction_link",
         "fund_master",
         "nav_snapshot",
         "portfolio",
+        "portfolio_policy",
+        "portfolio_policy_target",
         "portfolio_snapshot",
         "position_lot",
         "review_report",
@@ -43,6 +56,10 @@ def test_metadata_declares_stable_unique_constraints_and_indexes() -> None:
         constraint["name"] for constraint in inspector.get_unique_constraints("fund_master")
     }
     transaction_indexes = {index["name"] for index in inspector.get_indexes("transaction")}
+    decision_feedback_indexes = {
+        index["name"] for index in inspector.get_indexes("decision_feedback")
+    }
+    decision_run_indexes = {index["name"] for index in inspector.get_indexes("decision_run")}
     position_lot_indexes = {index["name"] for index in inspector.get_indexes("position_lot")}
 
     assert "uq_fund_master__fund_code" in fund_unique_constraints
@@ -51,6 +68,14 @@ def test_metadata_declares_stable_unique_constraints_and_indexes() -> None:
         "ix_transaction__portfolio_id__trade_date",
         "ix_transaction__source_name__source_reference",
     } <= transaction_indexes
+    assert {
+        "ix_decision_feedback__decision_run_id__action_index",
+        "ix_decision_feedback__portfolio_id__feedback_date",
+    } <= decision_feedback_indexes
+    assert {
+        "ix_decision_run__portfolio_id__decision_date",
+        "ix_decision_run__run_id",
+    } <= decision_run_indexes
     assert {
         "ix_position_lot__portfolio_id__as_of_date",
         "ix_position_lot__portfolio_id__fund_id__lot_key",

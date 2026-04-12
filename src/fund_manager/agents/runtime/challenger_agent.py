@@ -57,6 +57,7 @@ class ManualChallengerAgent:
         *,
         prompt_name: str = "challenger_agent.md",
     ) -> None:
+        # Placeholder manual runtime until a critique-focused challenger agent is wired in.
         self._prompt = load_prompt_definition(prompt_name)
 
     @property

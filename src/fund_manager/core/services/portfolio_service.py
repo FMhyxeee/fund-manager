@@ -9,6 +9,7 @@ from decimal import ROUND_HALF_UP, Decimal
 
 from sqlalchemy.orm import Session
 
+from fund_manager.core.domain.decimal_constants import NAV_QUANTIZER, UNITS_QUANTIZER, ZERO
 from fund_manager.core.domain.metrics import (
     ACCOUNTING_ASSUMPTIONS_NOTE,
     PortfolioValuePoint,
@@ -24,11 +25,12 @@ from fund_manager.storage.repo import (
     PositionLotRepository,
     resolve_authoritative_position_lots,
 )
-
-UNITS_QUANTIZER = Decimal("0.000001")
-NAV_QUANTIZER = Decimal("0.00000001")
-ZERO = Decimal("0")
-
+from fund_manager.storage.repo.protocols import (
+    NavSnapshotRepositoryProtocol,
+    PortfolioRepositoryProtocol,
+    PortfolioSnapshotRepositoryProtocol,
+    PositionLotRepositoryProtocol,
+)
 
 class PortfolioServiceError(ValueError):
     """Base exception for portfolio snapshot assembly failures."""
@@ -134,13 +136,19 @@ class PortfolioService:
         session: Session,
         *,
         analytics_service: AnalyticsService | None = None,
+        portfolio_repo: PortfolioRepositoryProtocol | None = None,
+        position_lot_repo: PositionLotRepositoryProtocol | None = None,
+        nav_snapshot_repo: NavSnapshotRepositoryProtocol | None = None,
+        portfolio_snapshot_repo: PortfolioSnapshotRepositoryProtocol | None = None,
     ) -> None:
         self._session = session
         self._analytics_service = analytics_service or AnalyticsService()
-        self._portfolio_repo = PortfolioRepository(session)
-        self._position_lot_repo = PositionLotRepository(session)
-        self._nav_snapshot_repo = NavSnapshotRepository(session)
-        self._portfolio_snapshot_repo = PortfolioSnapshotRepository(session)
+        self._portfolio_repo = portfolio_repo or PortfolioRepository(session)
+        self._position_lot_repo = position_lot_repo or PositionLotRepository(session)
+        self._nav_snapshot_repo = nav_snapshot_repo or NavSnapshotRepository(session)
+        self._portfolio_snapshot_repo = (
+            portfolio_snapshot_repo or PortfolioSnapshotRepository(session)
+        )
 
     def assemble_portfolio_snapshot(
         self,

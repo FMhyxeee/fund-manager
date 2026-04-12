@@ -39,6 +39,12 @@ def resolve_authoritative_position_lots(
         else:
             tracked_lots.append(position_lot)
 
+    transaction_backed_fund_ids = {
+        position_lot.fund_id
+        for position_lot in tracked_lots
+        if position_lot.lot_key.startswith("txnagg:")
+    }
+
     if bootstrap_batches:
         latest_batch_key = max(
             bootstrap_batches,
@@ -47,7 +53,11 @@ def resolve_authoritative_position_lots(
                 max(lot.id for lot in bootstrap_batches[batch_key]),
             ),
         )
-        tracked_lots.extend(bootstrap_batches[latest_batch_key])
+        tracked_lots.extend(
+            position_lot
+            for position_lot in bootstrap_batches[latest_batch_key]
+            if position_lot.fund_id not in transaction_backed_fund_ids
+        )
 
     return tuple(
         sorted(

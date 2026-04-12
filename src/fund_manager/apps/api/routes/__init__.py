@@ -2,6 +2,7 @@
 
 from fastapi import APIRouter
 
+from fund_manager.apps.api.routes.decisions import router as decisions_router
 from fund_manager.apps.api.routes.dashboard import router as dashboard_router
 from fund_manager.apps.api.routes.funds import router as funds_router
 from fund_manager.apps.api.routes.health import router as health_router
@@ -12,6 +13,7 @@ from fund_manager.apps.api.routes.workflows import router as workflows_router
 
 api_router = APIRouter()
 api_router.include_router(health_router)
+api_router.include_router(decisions_router)
 api_router.include_router(dashboard_router)
 api_router.include_router(portfolios_router)
 api_router.include_router(funds_router)
