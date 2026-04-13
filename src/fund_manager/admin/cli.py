@@ -22,6 +22,7 @@ from fund_manager.core.services import (
     DecisionFeedbackError,
     DecisionFeedbackService,
     FundDataSyncService,
+    FundWatchlistService,
     IncompletePortfolioSnapshotError,
     PolicyService,
     PortfolioNotFoundError,
@@ -76,6 +77,7 @@ def _build_parser() -> argparse.ArgumentParser:
     _build_policy_commands(resource_subparsers)
     _build_decision_commands(resource_subparsers)
     _build_workflow_commands(resource_subparsers)
+    _build_watchlist_commands(resource_subparsers)
 
     return parser
 
@@ -230,6 +232,61 @@ def _build_workflow_commands(
     strategy_parser.add_argument("--run-id", default=None)
     strategy_parser.add_argument("--idempotency-key", default=None)
     strategy_parser.set_defaults(handler=_handle_workflow_run_monthly_strategy_debate)
+
+
+def _build_watchlist_commands(
+    resource_subparsers: argparse._SubParsersAction[argparse.ArgumentParser],
+) -> None:
+    watchlist_parser = resource_subparsers.add_parser(
+        "watchlist",
+        help="Read watchlist candidates, style leaders, and candidate fit analysis.",
+    )
+    watchlist_subparsers = watchlist_parser.add_subparsers(dest="action", required=True)
+
+    candidates_parser = watchlist_subparsers.add_parser(
+        "candidates",
+        help="Build watchlist candidates for one portfolio context.",
+    )
+    candidates_parser.add_argument("--portfolio-id", type=int, default=None)
+    candidates_parser.add_argument("--portfolio-name", default=None)
+    candidates_parser.add_argument("--as-of-date", type=_parse_date, required=True)
+    candidates_parser.add_argument(
+        "--risk-profile",
+        choices=["conservative", "balanced", "aggressive"],
+        default="balanced",
+    )
+    candidates_parser.add_argument("--max-results", type=int, default=6)
+    candidates_parser.add_argument(
+        "--category",
+        action="append",
+        default=None,
+        help="Optional category filter; repeat for multiple categories.",
+    )
+    candidates_parser.add_argument(
+        "--include-high-overlap",
+        action="store_true",
+        help="Include overlap_high/high_beta_duplicate candidates instead of filtering them out.",
+    )
+    candidates_parser.set_defaults(handler=_handle_watchlist_candidates)
+
+    fit_parser = watchlist_subparsers.add_parser(
+        "fit",
+        help="Analyze how one candidate fund fits the current portfolio.",
+    )
+    fit_parser.add_argument("--portfolio-id", type=int, default=None)
+    fit_parser.add_argument("--portfolio-name", default=None)
+    fit_parser.add_argument("--fund-code", required=True)
+    fit_parser.add_argument("--as-of-date", type=_parse_date, required=True)
+    fit_parser.set_defaults(handler=_handle_watchlist_fit)
+
+    leaders_parser = watchlist_subparsers.add_parser(
+        "leaders",
+        help="List style leader funds from the curated watchlist universe.",
+    )
+    leaders_parser.add_argument("--as-of-date", type=_parse_date, required=True)
+    leaders_parser.add_argument("--category", action="append", default=None)
+    leaders_parser.add_argument("--max-per-category", type=int, default=1)
+    leaders_parser.set_defaults(handler=_handle_watchlist_leaders)
 
 
 def _handle_policy_show(args: argparse.Namespace, session: Session) -> dict[str, Any]:
@@ -509,6 +566,41 @@ def _resolve_period_bounds(
     if resolved_period_start > resolved_period_end:
         raise ValueError("period_start cannot be later than period_end.")
     return resolved_period_start, resolved_period_end
+
+
+def _handle_watchlist_candidates(args: argparse.Namespace, session: Session) -> dict[str, Any]:
+    service = FundWatchlistService(session)
+    result = service.build_watchlist_candidates(
+        as_of_date=args.as_of_date,
+        portfolio_id=args.portfolio_id,
+        portfolio_name=args.portfolio_name,
+        risk_profile=args.risk_profile,
+        max_results=args.max_results,
+        include_categories=tuple(args.category) if args.category else None,
+        exclude_high_overlap=not args.include_high_overlap,
+    )
+    return cast(dict[str, Any], serialize_for_json(result))
+
+
+def _handle_watchlist_fit(args: argparse.Namespace, session: Session) -> dict[str, Any]:
+    service = FundWatchlistService(session)
+    result = service.analyze_candidate_fit(
+        as_of_date=args.as_of_date,
+        portfolio_id=args.portfolio_id,
+        portfolio_name=args.portfolio_name,
+        fund_code=args.fund_code,
+    )
+    return cast(dict[str, Any], serialize_for_json(result))
+
+
+def _handle_watchlist_leaders(args: argparse.Namespace, session: Session) -> dict[str, Any]:
+    service = FundWatchlistService(session)
+    result = service.build_style_leaders(
+        as_of_date=args.as_of_date,
+        categories=tuple(args.category) if args.category else None,
+        max_per_category=args.max_per_category,
+    )
+    return cast(dict[str, Any], serialize_for_json(result))
 
 
 def _require_portfolio(session: Session, portfolio_id: int) -> None:

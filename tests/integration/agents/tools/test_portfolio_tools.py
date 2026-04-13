@@ -194,6 +194,34 @@ def test_portfolio_tools_record_decision_feedback(session: Session) -> None:
     assert persisted_link.transaction_id == transaction.id
 
 
+def test_portfolio_tools_watchlist_reads(session: Session) -> None:
+    portfolio = seed_watchlist_portfolio(session)
+    tools = PortfolioTools(session)
+
+    candidates = tools.get_watchlist_candidates(
+        portfolio_id=portfolio.id,
+        as_of_date=date(2026, 4, 13),
+    )
+    fit = tools.get_watchlist_candidate_fit(
+        portfolio_id=portfolio.id,
+        fund_code="006265",
+        as_of_date=date(2026, 4, 13),
+    )
+    leaders = tools.get_watchlist_style_leaders(
+        as_of_date=date(2026, 4, 13),
+        categories=("healthcare",),
+    )
+
+    all_codes = [
+        item["fund_code"]
+        for item in candidates["core_watchlist"] + candidates["extended_watchlist"]
+    ]
+    assert "010685" in all_codes
+    assert "006265" not in all_codes
+    assert fit["fit_label"] == "high_beta_duplicate"
+    assert leaders["leaders"]["healthcare"][0]["fund_code"] in {"010685", "003095"}
+
+
 def seed_portfolio_with_valuation_history(session: Session) -> Portfolio:
     portfolio = Portfolio(
         portfolio_code="main",
@@ -285,6 +313,49 @@ def seed_portfolio_with_valuation_history(session: Session) -> Portfolio:
             ),
         ]
     )
+    session.commit()
+    return portfolio
+
+
+def seed_watchlist_portfolio(session: Session) -> Portfolio:
+    portfolio = Portfolio(
+        portfolio_code="main",
+        portfolio_name="Main",
+    )
+    funds = [
+        FundMaster(fund_code="011506", fund_name="建信高端装备股票A", source_name="test"),
+        FundMaster(fund_code="010685", fund_name="工银前沿医疗股票C", source_name="test"),
+        FundMaster(fund_code="003095", fund_name="中欧医疗健康混合A", source_name="test"),
+        FundMaster(fund_code="006087", fund_name="华泰柏瑞沪深300ETF联接A", source_name="test"),
+        FundMaster(fund_code="006265", fund_name="红土创新新科技股票A", source_name="test"),
+    ]
+    session.add(portfolio)
+    session.add_all(funds)
+    session.flush()
+
+    held = next(fund for fund in funds if fund.fund_code == "011506")
+    session.add(
+        PositionLot(
+            portfolio_id=portfolio.id,
+            fund_id=held.id,
+            run_id="watchlist-seed",
+            lot_key="lot-011506",
+            opened_on=date(2026, 4, 1),
+            as_of_date=date(2026, 4, 13),
+            remaining_units=Decimal("100.000000"),
+            average_cost_per_unit=Decimal("1.00000000"),
+            total_cost_amount=Decimal("100.0000"),
+        )
+    )
+    for fund in funds:
+        session.add(
+            NavSnapshot(
+                fund_id=fund.id,
+                nav_date=date(2026, 4, 10),
+                unit_nav_amount=Decimal("1.11110000"),
+                source_name="test",
+            )
+        )
     session.commit()
     return portfolio
 

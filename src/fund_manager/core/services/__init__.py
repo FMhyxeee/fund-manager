@@ -1,16 +1,12 @@
 """Deterministic business services."""
 
+from typing import Any
+
 from fund_manager.core.services.analytics_service import (
     AnalyticsService,
     PortfolioMetrics,
     PortfolioPerformanceMetrics,
     PositionMetrics,
-)
-from fund_manager.core.services.decision_service import (
-    DECISION_ENGINE_NAME,
-    DecisionActionDTO,
-    DecisionService,
-    PortfolioDecisionDTO,
 )
 from fund_manager.core.services.decision_feedback_service import (
     DecisionActionNotFoundError,
@@ -21,6 +17,12 @@ from fund_manager.core.services.decision_feedback_service import (
 )
 from fund_manager.core.services.decision_reconciliation_service import (
     DecisionReconciliationService,
+)
+from fund_manager.core.services.decision_service import (
+    DECISION_ENGINE_NAME,
+    DecisionActionDTO,
+    DecisionService,
+    PortfolioDecisionDTO,
 )
 from fund_manager.core.services.fund_data_sync_service import (
     FundDataSyncService,
@@ -86,4 +88,39 @@ __all__ = [
     "TRANSACTION_AGGREGATE_LOT_PREFIX",
     "TransactionLotSyncResult",
     "TransactionLotSyncService",
+    "CandidateFitAnalysisDTO",
+    "FundLeaderDTO",
+    "FundWatchlistService",
+    "WatchlistCandidateDTO",
+    "WatchlistResultDTO",
 ]
+
+_WATCHLIST_EXPORTS = {
+    "CandidateFitAnalysisDTO",
+    "FundLeaderDTO",
+    "FundWatchlistService",
+    "WatchlistCandidateDTO",
+    "WatchlistResultDTO",
+}
+
+
+def __getattr__(name: str) -> Any:
+    if name not in _WATCHLIST_EXPORTS:
+        raise AttributeError(f"module {__name__!r} has no attribute {name!r}")
+
+    from fund_manager.core.watchlist import (
+        CandidateFitAnalysisDTO,
+        FundLeaderDTO,
+        FundWatchlistService,
+        WatchlistCandidateDTO,
+        WatchlistResultDTO,
+    )
+
+    exports = {
+        "CandidateFitAnalysisDTO": CandidateFitAnalysisDTO,
+        "FundLeaderDTO": FundLeaderDTO,
+        "FundWatchlistService": FundWatchlistService,
+        "WatchlistCandidateDTO": WatchlistCandidateDTO,
+        "WatchlistResultDTO": WatchlistResultDTO,
+    }
+    return exports[name]

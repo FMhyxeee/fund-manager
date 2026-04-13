@@ -89,6 +89,46 @@ def seed_portfolio_with_fund(
     return portfolio, fund
 
 
+def seed_watchlist_portfolio(session: Session) -> Portfolio:
+    portfolio = Portfolio(portfolio_code="main", portfolio_name="Main Portfolio")
+    session.add(portfolio)
+    funds = [
+        FundMaster(fund_code="011506", fund_name="建信高端装备股票A", source_name="test"),
+        FundMaster(fund_code="010685", fund_name="工银前沿医疗股票C", source_name="test"),
+        FundMaster(fund_code="003095", fund_name="中欧医疗健康混合A", source_name="test"),
+        FundMaster(fund_code="006087", fund_name="华泰柏瑞沪深300ETF联接A", source_name="test"),
+        FundMaster(fund_code="006265", fund_name="红土创新新科技股票A", source_name="test"),
+    ]
+    session.add_all(funds)
+    session.flush()
+
+    held = next(fund for fund in funds if fund.fund_code == "011506")
+    session.add(
+        PositionLot(
+            portfolio_id=portfolio.id,
+            fund_id=held.id,
+            run_id="watchlist-seed",
+            lot_key="lot-011506",
+            opened_on=date(2026, 4, 1),
+            as_of_date=date(2026, 4, 13),
+            remaining_units=Decimal("100.000000"),
+            average_cost_per_unit=Decimal("1.00000000"),
+            total_cost_amount=Decimal("100.0000"),
+        )
+    )
+    for fund in funds:
+        session.add(
+            NavSnapshot(
+                fund_id=fund.id,
+                nav_date=date(2026, 4, 10),
+                unit_nav_amount=Decimal("1.11110000"),
+                source_name="test",
+            )
+        )
+    session.commit()
+    return portfolio
+
+
 def test_policy_show_outputs_active_policy_json(
     session: Session,
     engine,
@@ -225,6 +265,84 @@ def test_decision_list_outputs_recent_runs(
     assert len(data) == 1
     assert data[0]["id"] == newer_run.id
     assert data[0]["action_count"] == 1
+
+
+def test_watchlist_candidates_outputs_json(
+    session: Session,
+    engine,
+    monkeypatch: pytest.MonkeyPatch,
+    capsys: pytest.CaptureFixture[str],
+) -> None:
+    install_test_session_factory(monkeypatch, engine)
+    portfolio = seed_watchlist_portfolio(session)
+
+    admin_cli.main(
+        [
+            "watchlist",
+            "candidates",
+            "--portfolio-id",
+            str(portfolio.id),
+            "--as-of-date",
+            "2026-04-13",
+        ]
+    )
+
+    data = json.loads(capsys.readouterr().out)
+    assert data["portfolio_id"] == portfolio.id
+    all_codes = [item["fund_code"] for item in data["core_watchlist"] + data["extended_watchlist"]]
+    assert "010685" in all_codes
+    assert "006265" not in all_codes
+
+
+def test_watchlist_fit_outputs_json(
+    session: Session,
+    engine,
+    monkeypatch: pytest.MonkeyPatch,
+    capsys: pytest.CaptureFixture[str],
+) -> None:
+    install_test_session_factory(monkeypatch, engine)
+    portfolio = seed_watchlist_portfolio(session)
+
+    admin_cli.main(
+        [
+            "watchlist",
+            "fit",
+            "--portfolio-id",
+            str(portfolio.id),
+            "--fund-code",
+            "006265",
+            "--as-of-date",
+            "2026-04-13",
+        ]
+    )
+
+    data = json.loads(capsys.readouterr().out)
+    assert data["fund_code"] == "006265"
+    assert data["fit_label"] == "high_beta_duplicate"
+
+
+def test_watchlist_leaders_outputs_json(
+    session: Session,
+    engine,
+    monkeypatch: pytest.MonkeyPatch,
+    capsys: pytest.CaptureFixture[str],
+) -> None:
+    install_test_session_factory(monkeypatch, engine)
+    seed_watchlist_portfolio(session)
+
+    admin_cli.main(
+        [
+            "watchlist",
+            "leaders",
+            "--as-of-date",
+            "2026-04-13",
+            "--category",
+            "healthcare",
+        ]
+    )
+
+    data = json.loads(capsys.readouterr().out)
+    assert data["healthcare"][0]["fund_code"] in {"010685", "003095"}
 
 
 def test_decision_show_outputs_detail_payload(

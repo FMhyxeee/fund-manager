@@ -18,6 +18,7 @@ from fund_manager.core.services import (
     PortfolioService,
     PortfolioSummaryDTO,
 )
+from fund_manager.core.watchlist import FundWatchlistService
 from fund_manager.storage.models import DecisionFeedbackStatus, DecisionRun
 from fund_manager.storage.repo import DecisionRunRepository
 
@@ -47,6 +48,7 @@ class PortfolioTools:
         self._decision_feedback_service = (
             decision_feedback_service or DecisionFeedbackService(session)
         )
+        self._watchlist_service = FundWatchlistService(session)
         self._daily_decision_workflow = daily_decision_workflow or DailyDecisionWorkflow(session)
         self._weekly_review_workflow = weekly_review_workflow or WeeklyReviewWorkflow(
             session,
@@ -188,6 +190,64 @@ class PortfolioTools:
             "portfolio": serialize_for_json(resolved_portfolio),
             "as_of_date": as_of_date.isoformat(),
             "policy": serialize_for_json(policy),
+        }
+
+    def get_watchlist_candidates(
+        self,
+        *,
+        as_of_date: date,
+        portfolio_id: int | None = None,
+        portfolio_name: str | None = None,
+        risk_profile: str = "balanced",
+        max_results: int = 6,
+        categories: tuple[str, ...] | None = None,
+        include_high_overlap: bool = False,
+    ) -> dict[str, Any]:
+        """Return structured watchlist candidates for one portfolio context."""
+        result = self._watchlist_service.build_watchlist_candidates(
+            as_of_date=as_of_date,
+            portfolio_id=portfolio_id,
+            portfolio_name=portfolio_name,
+            risk_profile=risk_profile,
+            max_results=max_results,
+            include_categories=categories,
+            exclude_high_overlap=not include_high_overlap,
+        )
+        return serialize_for_json(result)
+
+    def get_watchlist_candidate_fit(
+        self,
+        *,
+        as_of_date: date,
+        fund_code: str,
+        portfolio_id: int | None = None,
+        portfolio_name: str | None = None,
+    ) -> dict[str, Any]:
+        """Return how one watchlist candidate fits the current portfolio."""
+        result = self._watchlist_service.analyze_candidate_fit(
+            as_of_date=as_of_date,
+            fund_code=fund_code,
+            portfolio_id=portfolio_id,
+            portfolio_name=portfolio_name,
+        )
+        return serialize_for_json(result)
+
+    def get_watchlist_style_leaders(
+        self,
+        *,
+        as_of_date: date,
+        categories: tuple[str, ...] | None = None,
+        max_per_category: int = 1,
+    ) -> dict[str, Any]:
+        """Return grouped watchlist style leaders from the curated universe."""
+        result = self._watchlist_service.build_style_leaders(
+            as_of_date=as_of_date,
+            categories=categories,
+            max_per_category=max_per_category,
+        )
+        return {
+            "as_of_date": as_of_date.isoformat(),
+            "leaders": serialize_for_json(result),
         }
 
     def get_decision_run(self, *, decision_run_id: int) -> dict[str, Any]:

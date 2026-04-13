@@ -106,6 +106,46 @@ def seed_portfolio_with_fund(session: Session) -> Portfolio:
     return portfolio
 
 
+def seed_watchlist_portfolio(session: Session) -> Portfolio:
+    portfolio = Portfolio(portfolio_code="main", portfolio_name="Main Portfolio")
+    session.add(portfolio)
+    funds = [
+        FundMaster(fund_code="011506", fund_name="建信高端装备股票A", source_name="test"),
+        FundMaster(fund_code="010685", fund_name="工银前沿医疗股票C", source_name="test"),
+        FundMaster(fund_code="003095", fund_name="中欧医疗健康混合A", source_name="test"),
+        FundMaster(fund_code="006087", fund_name="华泰柏瑞沪深300ETF联接A", source_name="test"),
+        FundMaster(fund_code="006265", fund_name="红土创新新科技股票A", source_name="test"),
+    ]
+    session.add_all(funds)
+    session.flush()
+
+    held = next(fund for fund in funds if fund.fund_code == "011506")
+    session.add(
+        PositionLot(
+            portfolio_id=portfolio.id,
+            fund_id=held.id,
+            run_id="watchlist-seed",
+            lot_key="lot-011506",
+            opened_on=date(2026, 4, 1),
+            as_of_date=date(2026, 4, 13),
+            remaining_units=Decimal("100.000000"),
+            average_cost_per_unit=Decimal("1.00000000"),
+            total_cost_amount=Decimal("100.0000"),
+        )
+    )
+    for fund in funds:
+        session.add(
+            NavSnapshot(
+                fund_id=fund.id,
+                nav_date=date(2026, 4, 10),
+                unit_nav_amount=Decimal("1.11110000"),
+                source_name="test",
+            )
+        )
+    session.commit()
+    return portfolio
+
+
 def test_health_endpoint(client: TestClient) -> None:
     response = client.get("/api/v1/health")
     assert response.status_code == 200
@@ -311,6 +351,47 @@ def test_get_latest_strategy_proposal_not_found(client: TestClient, session: Ses
 
     assert response.status_code == 404
     assert response.json()["detail"] == "Strategy proposal not found"
+
+
+def test_get_watchlist_candidates(client: TestClient, session: Session) -> None:
+    portfolio = seed_watchlist_portfolio(session)
+
+    response = client.get(
+        f"/api/v1/watchlist/candidates?portfolio_id={portfolio.id}&as_of_date=2026-04-13"
+    )
+
+    assert response.status_code == 200
+    data = response.json()
+    assert data["portfolio_id"] == portfolio.id
+    all_codes = [item["fund_code"] for item in data["core_watchlist"] + data["extended_watchlist"]]
+    assert "010685" in all_codes
+    assert "006265" not in all_codes
+
+
+def test_get_watchlist_candidate_fit(client: TestClient, session: Session) -> None:
+    portfolio = seed_watchlist_portfolio(session)
+
+    response = client.get(
+        f"/api/v1/watchlist/fit?portfolio_id={portfolio.id}&fund_code=006265&as_of_date=2026-04-13"
+    )
+
+    assert response.status_code == 200
+    data = response.json()
+    assert data["fund_code"] == "006265"
+    assert data["fit_label"] == "high_beta_duplicate"
+
+
+def test_get_watchlist_style_leaders(client: TestClient, session: Session) -> None:
+    seed_watchlist_portfolio(session)
+
+    response = client.get(
+        "/api/v1/watchlist/style-leaders?as_of_date=2026-04-13&category=healthcare"
+    )
+
+    assert response.status_code == 200
+    data = response.json()
+    assert "healthcare" in data["leaders"]
+    assert data["leaders"]["healthcare"][0]["fund_code"] in {"010685", "003095"}
 
 
 def test_get_fund_not_found(client: TestClient) -> None:

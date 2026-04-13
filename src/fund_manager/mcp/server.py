@@ -149,6 +149,55 @@ def create_server() -> FastMCP:
             return service.get_review_report(report_id=report_id)
 
     @server.tool()
+    def watchlist_candidates(
+        as_of_date: str,
+        portfolio_id: int | None = None,
+        portfolio_name: str | None = None,
+        risk_profile: str = "balanced",
+        max_results: int = 6,
+        categories: list[str] | None = None,
+        include_high_overlap: bool = False,
+    ) -> dict:
+        with _service_session() as service:
+            return service.get_watchlist_candidates(
+                as_of_date=date.fromisoformat(as_of_date),
+                portfolio_id=portfolio_id,
+                portfolio_name=portfolio_name,
+                risk_profile=risk_profile,
+                max_results=max_results,
+                categories=tuple(categories) if categories else None,
+                include_high_overlap=include_high_overlap,
+            )
+
+    @server.tool()
+    def watchlist_candidate_fit(
+        fund_code: str,
+        as_of_date: str,
+        portfolio_id: int | None = None,
+        portfolio_name: str | None = None,
+    ) -> dict:
+        with _service_session() as service:
+            return service.get_watchlist_candidate_fit(
+                fund_code=fund_code,
+                as_of_date=date.fromisoformat(as_of_date),
+                portfolio_id=portfolio_id,
+                portfolio_name=portfolio_name,
+            )
+
+    @server.tool()
+    def watchlist_style_leaders(
+        as_of_date: str,
+        categories: list[str] | None = None,
+        max_per_category: int = 1,
+    ) -> dict:
+        with _service_session() as service:
+            return service.get_watchlist_style_leaders(
+                as_of_date=date.fromisoformat(as_of_date),
+                categories=tuple(categories) if categories else None,
+                max_per_category=max_per_category,
+            )
+
+    @server.tool()
     def fund_profile(fund_code: str) -> dict:
         with _service_session() as service:
             return service.get_fund_profile(fund_code=fund_code)
