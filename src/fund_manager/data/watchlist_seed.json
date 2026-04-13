@@ -1,0 +1,92 @@
+[
+  {
+    "fund_code": "010685",
+    "category": "healthcare",
+    "style_tags": ["healthcare", "active"],
+    "risk_level": "high",
+    "is_watchlist_eligible": true,
+    "is_leader_eligible": true,
+    "notes": "主动医药代表基金"
+  },
+  {
+    "fund_code": "003095",
+    "category": "healthcare",
+    "style_tags": ["healthcare", "active"],
+    "risk_level": "high",
+    "is_watchlist_eligible": true,
+    "is_leader_eligible": true,
+    "notes": "主动医药代表基金"
+  },
+  {
+    "fund_code": "011506",
+    "category": "technology_growth",
+    "style_tags": ["technology_growth", "equipment", "active"],
+    "risk_level": "high",
+    "is_watchlist_eligible": false,
+    "is_leader_eligible": false,
+    "notes": "当前持仓映射，用于识别高端制造/科技成长重合暴露"
+  },
+  {
+    "fund_code": "161725",
+    "category": "consumer",
+    "style_tags": ["consumer", "liquor", "index"],
+    "risk_level": "high",
+    "is_watchlist_eligible": true,
+    "is_leader_eligible": true,
+    "notes": "消费/白酒观察方向"
+  },
+  {
+    "fund_code": "012414",
+    "category": "consumer",
+    "style_tags": ["consumer", "liquor", "index"],
+    "risk_level": "high",
+    "is_watchlist_eligible": false,
+    "is_leader_eligible": false,
+    "notes": "当前持仓映射，用于识别消费/白酒重合暴露"
+  },
+  {
+    "fund_code": "006087",
+    "category": "broad_index",
+    "style_tags": ["broad_index", "hs300", "index"],
+    "risk_level": "medium",
+    "is_watchlist_eligible": true,
+    "is_leader_eligible": true,
+    "notes": "沪深300宽基代表"
+  },
+  {
+    "fund_code": "003578",
+    "category": "broad_index",
+    "style_tags": ["broad_index", "zz500", "enhanced"],
+    "risk_level": "medium",
+    "is_watchlist_eligible": true,
+    "is_leader_eligible": true,
+    "notes": "中证500增强代表"
+  },
+  {
+    "fund_code": "006382",
+    "category": "broad_index",
+    "style_tags": ["broad_index", "zz500", "index"],
+    "risk_level": "medium",
+    "is_watchlist_eligible": true,
+    "is_leader_eligible": true,
+    "notes": "中证500 ETF联接"
+  },
+  {
+    "fund_code": "013161",
+    "category": "defensive_dividend",
+    "style_tags": ["dividend", "low_vol", "index"],
+    "risk_level": "low",
+    "is_watchlist_eligible": true,
+    "is_leader_eligible": true,
+    "notes": "红利低波观察方向"
+  },
+  {
+    "fund_code": "006265",
+    "category": "technology_growth",
+    "style_tags": ["technology_growth", "active"],
+    "risk_level": "high",
+    "is_watchlist_eligible": true,
+    "is_leader_eligible": true,
+    "notes": "科技成长风向标"
+  }
+]

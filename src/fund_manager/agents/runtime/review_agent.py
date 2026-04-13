@@ -101,6 +101,7 @@ class ManualReviewAgent:
         *,
         prompt_name: str = "review_agent.md",
     ) -> None:
+        # Placeholder manual runtime until a tool-backed review agent is wired in.
         self._prompt = load_prompt_definition(prompt_name)
 
     @property

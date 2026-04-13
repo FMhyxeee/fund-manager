@@ -7,6 +7,7 @@ from dataclasses import dataclass
 from datetime import date, timedelta
 from decimal import Decimal
 
+from fund_manager.core.domain.decimal_constants import ZERO
 from fund_manager.core.domain.metrics import (
     ACCOUNTING_ASSUMPTIONS_NOTE,
     MissingNavError,
@@ -84,7 +85,7 @@ class AnalyticsService:
                 if position_current_value is None
                 else unrealized_pnl(position.total_cost_amount, position_current_value)
             )
-            missing_nav = position_current_value is None and position.units != Decimal("0")
+            missing_nav = position_current_value is None and position.units != ZERO
             if missing_nav:
                 missing_nav_fund_codes.append(position.fund_code)
 
@@ -111,7 +112,7 @@ class AnalyticsService:
                     for metric in preliminary_metrics
                     if metric.current_value_amount is not None
                 ),
-                start=Decimal("0"),
+                start=ZERO,
             )
         )
 
@@ -124,7 +125,7 @@ class AnalyticsService:
                 current_value_amount=metric.current_value_amount,
                 unrealized_pnl_amount=metric.unrealized_pnl_amount,
                 weight_ratio=weight(
-                    metric.current_value_amount or Decimal("0"),
+                    metric.current_value_amount or ZERO,
                     total_market_value_amount,
                 ),
                 missing_nav=metric.missing_nav,
@@ -144,7 +145,7 @@ class AnalyticsService:
             metric.fund_code for metric in position_metrics if metric.missing_nav
         )
         total_cost_amount = quantize_money(
-            sum((position.total_cost_amount for position in positions), start=Decimal("0"))
+            sum((position.total_cost_amount for position in positions), start=ZERO)
         )
 
         total_market_value_amount: Decimal | None
@@ -160,7 +161,7 @@ class AnalyticsService:
                         for metric in position_metrics
                         if metric.current_value_amount is not None
                     ),
-                    start=Decimal("0"),
+                    start=ZERO,
                 )
             )
             unrealized_pnl_amount = quantize_money(
@@ -170,7 +171,7 @@ class AnalyticsService:
                         for metric in position_metrics
                         if metric.unrealized_pnl_amount is not None
                     ),
-                    start=Decimal("0"),
+                    start=ZERO,
                 )
             )
 
@@ -229,7 +230,7 @@ class AnalyticsService:
                 fund_code=position.fund_code,
             )
         except MissingNavError:
-            if position.units == Decimal("0"):
+            if position.units == ZERO:
                 raise
             return None
 

@@ -7,11 +7,14 @@ This repository implements a **personal, self-hosted, agent-driven fund portfoli
 Primary goals:
 - Track and explain personal fund holdings and transactions.
 - Compute authoritative portfolio metrics using deterministic code.
+- Generate deterministic policy-backed daily decision runs.
+- Capture manual execution feedback from the operator.
+- Reconcile imported transactions back to prior decision feedback for auditability.
 - Run scheduled review workflows (daily / weekly / monthly).
 - Support multi-agent discussion for strategy analysis.
-- Persist reports, strategy proposals, and debate logs for long-term review.
+- Persist reports, decision runs, manual feedback, strategy proposals, and debate logs for long-term review.
 
-This system is a **decision-support system**, not an auto-trading system.
+This system is a **decision-support system with a manual execution loop**, not an auto-trading system.
 
 ---
 
@@ -19,8 +22,9 @@ This system is a **decision-support system**, not an auto-trading system.
 
 Do **not** implement or assume the following in v1 unless explicitly requested:
 - Automatic fund buying or selling.
+- Broker / custodian / exchange integrations for order submission.
 - Direct integration with trading permissions.
-- Real-money execution pipelines.
+- Real-money execution pipelines or background order dispatch.
 - Hidden LLM-only accounting logic.
 - Multi-tenant SaaS behaviors.
 - Public API hardening for external customers.
@@ -41,13 +45,48 @@ Do **not** implement or assume the following in v1 unless explicitly requested:
    - Every strategy conclusion must reference structured data produced by tools or services.
    - Never produce unsupported “investment advice” language.
 
-4. **No direct agent mutation of core accounting tables**
+4. **Manual execution is first-class**
+   - The human operator decides whether a suggested action was executed, skipped, or deferred.
+   - The system may persist manual feedback and reconcile later imported transactions back to that feedback.
+   - The system must not infer that a trade happened only because an agent recommended it.
+
+5. **No direct agent mutation of core accounting tables**
    - Agents must call domain tools.
    - Agents must not directly write SQL or mutate accounting records without going through controlled services.
 
-5. **Personal deployment assumption**
+6. **Personal deployment assumption**
    - The system is built for one trusted operator.
    - Optimize for clarity, maintainability, and auditability over enterprise complexity.
+
+### Boundary with OpenClaw
+
+`fund-manager` owns the investment-domain source of truth.
+
+`fund-manager` is responsible for:
+- canonical portfolio data and persistence
+- deterministic accounting and policy evaluation
+- append-only audit artifacts such as snapshots, reports, decisions, feedback, and reconciliation links
+- fund-domain ingestion paths such as AKShare sync, holdings import, transaction import, and NAV refresh
+- typed domain interfaces exposed through API, CLI, MCP, or agent tools
+
+`OpenClaw` is responsible for:
+- agent runtime, model/profile selection, auth context, and tool permissions
+- channel interaction such as chat replies, Feishu delivery, inbox-style summaries, and notifications
+- orchestration concerns such as heartbeat checks, cron triggers, retry policy, and “who should be told”
+- cross-project tools that are not fund-specific, such as web search, mail, calendar, shell, and GitHub workflows
+
+Coordination rule:
+- `OpenClaw` may call `fund-manager`, schedule `fund-manager`, or summarize `fund-manager` outputs.
+- `fund-manager` must not depend on `OpenClaw` internals to remain correct.
+- `OpenClaw` must not bypass `fund-manager` services by writing the database directly or re-implementing portfolio truth in prompts.
+
+Practical split:
+- “What is the portfolio state?” belongs in `fund-manager`.
+- “When should we run the workflow and how should we present it?” belongs in `OpenClaw`.
+- “Should this imported transaction be linked to a prior decision?” belongs in `fund-manager`.
+- “Should the human receive a Feishu summary right now?” belongs in `OpenClaw`.
+
+For an action-level ownership checklist, see [`doc/06-边界与接口清单.md`](./doc/06-%E8%BE%B9%E7%95%8C%E4%B8%8E%E6%8E%A5%E5%8F%A3%E6%B8%85%E5%8D%95.md).
 
 ---
 
@@ -63,12 +102,14 @@ Keep the repository layered:
 - `agents/tools`: controlled tools exposed to agents.
 - `agents/workflows`: orchestration and loop logic.
 - `scheduler`: timed triggers and automation entrypoints.
+- `mcp`: optional read-oriented transport layer for external agent clients.
 - `apps/api`: external API surface.
 
 ### 4.2 Dependency direction
 
 Allowed dependency direction:
 - `apps/api` -> `core/services`, `storage/repo`, `agents/workflows`
+- `mcp` -> `agents/tools`, `core/services`, `storage/repo`
 - `agents/workflows` -> `agents/tools`, `core/services`, `storage/repo`
 - `agents/tools` -> `core/services`, `storage/repo`, `data_adapters`
 - `data_adapters` -> external APIs only
@@ -78,6 +119,9 @@ Disallowed:
 - Domain logic depending on API frameworks.
 - Prompt text embedded inside core business services.
 - Data adapter logic mixed into accounting computation modules.
+
+Decision evaluation, manual feedback recording, and transaction reconciliation belong in
+`core/services`, with persistence flowing through `storage/repo`.
 
 ---
 
@@ -92,6 +136,10 @@ Disallowed:
 7. Never silently coerce missing numeric values to zero unless a business rule explicitly allows it.
 8. Opening holdings imports are append-only bootstrap snapshot batches. Services reading `position_lot` must resolve the latest authoritative batch or transaction-derived lot state, not sum every historical bootstrap import together.
 9. If required NAV data is missing, services must surface an incomplete snapshot state explicitly. They must not persist a canonical complete-valued portfolio snapshot by guessing, backfilling, or silently treating missing NAVs as zero.
+10. Scheduled or scripted market-data refreshes must write through repositories/services. Do not duplicate persistence logic in one-off scripts when a core service can own it.
+11. `decision_run`, `decision_feedback`, and `decision_transaction_link` are append-only audit artifacts. New state should be recorded as new rows, not by rewriting prior conclusions.
+12. `transaction` remains the authoritative trade ledger. Reconciliation should add link records, not mutate imported transactions to embed agent state.
+13. Manual feedback must reference a concrete deterministic action, preferably by `decision_run` plus `action_index`, rather than fuzzy natural-language matching.
 
 ---
 
@@ -107,6 +155,9 @@ The following values must be computed in deterministic services only:
 - daily / weekly / monthly return
 - drawdown
 - rebalance gap
+- policy band breaches
+- suggested rebalance amount
+- feedback-to-transaction reconciliation matches
 - transaction normalization results
 
 LLMs may:
@@ -147,6 +198,7 @@ Each agent should:
 Each agent must avoid:
 - directly editing accounting tables
 - making execution decisions automatically
+- marking a trade as executed unless the operator explicitly triggers a manual-feedback write path
 - generating unsupported predictions stated as facts
 - duplicating data-fetch logic that should live in tools
 
@@ -159,7 +211,17 @@ For weekly and monthly strategy workflows that produce a strategy proposal:
 
 No final strategy proposal should be saved without challenge review unless the user explicitly disables it.
 
-### 7.4 Manual weekly review stage
+### 7.4 Daily deterministic decision stage
+
+The daily decision stage is not a free-form agent recommendation pass.
+
+For this stage:
+- policy evaluation must come from deterministic services
+- the persisted artifact is `decision_run`
+- agents may explain, challenge, or summarize a deterministic decision, but should not replace it
+- manual execution feedback, when present, must be stored separately from the original decision artifact
+
+### 7.5 Manual weekly review stage
 
 The first weekly review workflow may be implemented as a manual, single-agent review flow before multi-agent debate is added.
 
@@ -186,6 +248,11 @@ Preferred tool pattern:
 2. call service/repo
 3. return structured result
 4. include metadata if relevant
+
+For tools that record manual execution feedback:
+- require explicit `decision_run` identity plus `action_index`
+- require an explicit feedback status such as `executed`, `skipped`, or `deferred`
+- keep reconciliation logic in services, not in route handlers or prompts
 
 Application services used by tools or APIs should prefer explicit structured DTOs over leaking ORM models directly.
 
@@ -243,10 +310,15 @@ Do not place sensitive credentials in prompt files.
 - period return calculation
 - drawdown calculation
 - rebalance gap calculation
+- deterministic policy decision evaluation
+- manual decision feedback recording
+- feedback-to-transaction reconciliation matching
 
 ### Mandatory integration tests
 - holdings import pipeline
 - transaction import pipeline
+- transaction import pipeline with decision reconciliation
+- daily decision workflow happy path
 - fund public data adapter normalization
 - weekly review workflow happy path
 
@@ -254,6 +326,7 @@ Do not place sensitive credentials in prompt files.
 - monthly strategy debate workflow
 - malformed CSV import
 - missing NAV data fallback handling
+- manual feedback API / tool entrypoints
 
 When changing core financial logic, update tests first or together with the change.
 

@@ -2,6 +2,7 @@
 
 from fastapi import FastAPI
 
+from fund_manager.apps.api.errors import install_exception_handlers
 from fund_manager.apps.api.routes import api_router
 from fund_manager.core.config import get_settings
 
@@ -16,6 +17,7 @@ def create_app() -> FastAPI:
         docs_url=f"{settings.api_prefix}/docs",
         openapi_url=f"{settings.api_prefix}/openapi.json",
     )
+    install_exception_handlers(application)
     application.include_router(api_router, prefix=settings.api_prefix)
     return application
 

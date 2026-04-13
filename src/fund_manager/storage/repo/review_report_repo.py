@@ -5,7 +5,8 @@ from __future__ import annotations
 from datetime import date
 from typing import Any
 
-from sqlalchemy.orm import Session
+from sqlalchemy import select
+from sqlalchemy.orm import Session, joinedload
 
 from fund_manager.storage.models import ReportPeriodType, ReviewReport
 
@@ -15,6 +16,37 @@ class ReviewReportRepository:
 
     def __init__(self, session: Session) -> None:
         self._session = session
+
+    def get_by_id(self, report_id: int) -> ReviewReport | None:
+        """Fetch one persisted review report with portfolio metadata loaded."""
+        statement = (
+            select(ReviewReport)
+            .options(joinedload(ReviewReport.portfolio))
+            .where(ReviewReport.id == report_id)
+            .limit(1)
+        )
+        return self._session.execute(statement).scalars().first()
+
+    def get_latest_for_portfolio(self, portfolio_id: int) -> ReviewReport | None:
+        """Fetch the latest persisted review report for one portfolio."""
+        statement = (
+            select(ReviewReport)
+            .options(joinedload(ReviewReport.portfolio))
+            .where(ReviewReport.portfolio_id == portfolio_id)
+            .order_by(ReviewReport.period_end.desc(), ReviewReport.id.desc())
+            .limit(1)
+        )
+        return self._session.execute(statement).scalars().first()
+
+    def get_by_run_id(self, run_id: str) -> ReviewReport | None:
+        """Fetch one persisted review report by run ID."""
+        statement = (
+            select(ReviewReport)
+            .options(joinedload(ReviewReport.portfolio))
+            .where(ReviewReport.run_id == run_id)
+            .limit(1)
+        )
+        return self._session.execute(statement).scalars().first()
 
     def append(
         self,

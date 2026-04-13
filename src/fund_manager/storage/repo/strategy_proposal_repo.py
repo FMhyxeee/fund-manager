@@ -6,7 +6,8 @@ from datetime import date
 from decimal import Decimal
 from typing import Any
 
-from sqlalchemy.orm import Session
+from sqlalchemy import select
+from sqlalchemy.orm import Session, joinedload
 
 from fund_manager.storage.models import StrategyProposal
 
@@ -16,6 +17,37 @@ class StrategyProposalRepository:
 
     def __init__(self, session: Session) -> None:
         self._session = session
+
+    def get_by_id(self, proposal_id: int) -> StrategyProposal | None:
+        """Fetch one persisted strategy proposal with portfolio metadata loaded."""
+        statement = (
+            select(StrategyProposal)
+            .options(joinedload(StrategyProposal.portfolio))
+            .where(StrategyProposal.id == proposal_id)
+            .limit(1)
+        )
+        return self._session.execute(statement).scalars().first()
+
+    def get_latest_for_portfolio(self, portfolio_id: int) -> StrategyProposal | None:
+        """Fetch the latest persisted strategy proposal for one portfolio."""
+        statement = (
+            select(StrategyProposal)
+            .options(joinedload(StrategyProposal.portfolio))
+            .where(StrategyProposal.portfolio_id == portfolio_id)
+            .order_by(StrategyProposal.proposal_date.desc(), StrategyProposal.id.desc())
+            .limit(1)
+        )
+        return self._session.execute(statement).scalars().first()
+
+    def get_by_run_id(self, run_id: str) -> StrategyProposal | None:
+        """Fetch one persisted strategy proposal by run ID."""
+        statement = (
+            select(StrategyProposal)
+            .options(joinedload(StrategyProposal.portfolio))
+            .where(StrategyProposal.run_id == run_id)
+            .limit(1)
+        )
+        return self._session.execute(statement).scalars().first()
 
     def append(
         self,

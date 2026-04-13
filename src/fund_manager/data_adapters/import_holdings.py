@@ -20,16 +20,23 @@ from uuid import uuid4
 from sqlalchemy.orm import Session
 
 from fund_manager.core.config import get_settings
+from fund_manager.core.domain.decimal_constants import (
+    AVG_COST_QUANTIZER,
+    TOTAL_COST_QUANTIZER,
+    UNITS_QUANTIZER,
+)
 from fund_manager.storage.db import get_session_factory
 from fund_manager.storage.repo import (
     FundMasterRepository,
     PortfolioRepository,
     PositionLotRepository,
 )
+from fund_manager.storage.repo.protocols import (
+    FundMasterRepositoryProtocol,
+    PortfolioRepositoryProtocol,
+    PositionLotRepositoryProtocol,
+)
 
-UNITS_QUANTIZER = Decimal("0.000001")
-AVG_COST_QUANTIZER = Decimal("0.00000001")
-TOTAL_COST_QUANTIZER = Decimal("0.0001")
 _REQUIRED_HEADERS = frozenset({"fund_code", "fund_name", "units"})
 _HEADER_PORTFOLIO_NAME = "portfolio_name"
 _HEADER_AVG_COST = "avg_cost"
@@ -156,22 +163,25 @@ class HoldingsImporter:
 
     session: Session
     default_portfolio_name: str
-    _portfolio_repo: PortfolioRepository
-    _fund_repo: FundMasterRepository
-    _position_lot_repo: PositionLotRepository
+    _portfolio_repo: PortfolioRepositoryProtocol
+    _fund_repo: FundMasterRepositoryProtocol
+    _position_lot_repo: PositionLotRepositoryProtocol
 
     def __init__(
         self,
         session: Session,
         *,
         default_portfolio_name: str | None = None,
+        portfolio_repo: PortfolioRepositoryProtocol | None = None,
+        fund_repo: FundMasterRepositoryProtocol | None = None,
+        position_lot_repo: PositionLotRepositoryProtocol | None = None,
     ) -> None:
         settings = get_settings()
         self.session = session
         self.default_portfolio_name = default_portfolio_name or settings.default_portfolio_name
-        self._portfolio_repo = PortfolioRepository(session)
-        self._fund_repo = FundMasterRepository(session)
-        self._position_lot_repo = PositionLotRepository(session)
+        self._portfolio_repo = portfolio_repo or PortfolioRepository(session)
+        self._fund_repo = fund_repo or FundMasterRepository(session)
+        self._position_lot_repo = position_lot_repo or PositionLotRepository(session)
 
     def import_csv(
         self,

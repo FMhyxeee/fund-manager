@@ -2,9 +2,21 @@
 
 from __future__ import annotations
 
-from sqlalchemy import create_engine, inspect
+from datetime import date
+from decimal import Decimal
 
-from fund_manager.storage.models import Base
+from sqlalchemy import create_engine, inspect, select, text
+from sqlalchemy.orm import Session
+
+from fund_manager.storage.models import (
+    Base,
+    FundMaster,
+    Portfolio,
+    ReportPeriodType,
+    ReviewReport,
+    TransactionRecord,
+    TransactionType,
+)
 
 
 def test_metadata_create_all_builds_expected_tables() -> None:
@@ -16,9 +28,14 @@ def test_metadata_create_all_builds_expected_tables() -> None:
     inspector = inspect(engine)
     assert set(inspector.get_table_names()) == {
         "agent_debate_log",
+        "decision_feedback",
+        "decision_run",
+        "decision_transaction_link",
         "fund_master",
         "nav_snapshot",
         "portfolio",
+        "portfolio_policy",
+        "portfolio_policy_target",
         "portfolio_snapshot",
         "position_lot",
         "review_report",
@@ -39,6 +56,10 @@ def test_metadata_declares_stable_unique_constraints_and_indexes() -> None:
         constraint["name"] for constraint in inspector.get_unique_constraints("fund_master")
     }
     transaction_indexes = {index["name"] for index in inspector.get_indexes("transaction")}
+    decision_feedback_indexes = {
+        index["name"] for index in inspector.get_indexes("decision_feedback")
+    }
+    decision_run_indexes = {index["name"] for index in inspector.get_indexes("decision_run")}
     position_lot_indexes = {index["name"] for index in inspector.get_indexes("position_lot")}
 
     assert "uq_fund_master__fund_code" in fund_unique_constraints
@@ -48,7 +69,71 @@ def test_metadata_declares_stable_unique_constraints_and_indexes() -> None:
         "ix_transaction__source_name__source_reference",
     } <= transaction_indexes
     assert {
+        "ix_decision_feedback__decision_run_id__action_index",
+        "ix_decision_feedback__portfolio_id__feedback_date",
+    } <= decision_feedback_indexes
+    assert {
+        "ix_decision_run__portfolio_id__decision_date",
+        "ix_decision_run__run_id",
+    } <= decision_run_indexes
+    assert {
         "ix_position_lot__portfolio_id__as_of_date",
         "ix_position_lot__portfolio_id__fund_id__lot_key",
         "ix_position_lot__run_id",
     } <= position_lot_indexes
+
+
+def test_transaction_enum_round_trips_lowercase_storage() -> None:
+    """ORM enum mapping should stay compatible with migrated lowercase values."""
+    engine = create_engine("sqlite+pysqlite:///:memory:")
+    Base.metadata.create_all(engine)
+
+    with Session(engine) as session:
+        portfolio = Portfolio(portfolio_code="main", portfolio_name="Main", is_default=True)
+        fund = FundMaster(fund_code="000001", fund_name="Alpha", source_name="test")
+        session.add_all([portfolio, fund])
+        session.flush()
+        session.add(
+            TransactionRecord(
+                portfolio_id=portfolio.id,
+                fund_id=fund.id,
+                trade_date=date(2026, 3, 1),
+                trade_type=TransactionType.BUY,
+                units=Decimal("10"),
+                gross_amount=Decimal("12"),
+            )
+        )
+        session.commit()
+
+        stored_value = session.execute(text('SELECT trade_type FROM "transaction"')).scalar_one()
+        loaded_value = session.execute(select(TransactionRecord.trade_type)).scalar_one()
+
+    assert stored_value == "buy"
+    assert loaded_value is TransactionType.BUY
+
+
+def test_review_report_enum_round_trips_lowercase_storage() -> None:
+    """Report period enums should persist values that match the migration."""
+    engine = create_engine("sqlite+pysqlite:///:memory:")
+    Base.metadata.create_all(engine)
+
+    with Session(engine) as session:
+        portfolio = Portfolio(portfolio_code="main", portfolio_name="Main", is_default=True)
+        session.add(portfolio)
+        session.flush()
+        session.add(
+            ReviewReport(
+                portfolio_id=portfolio.id,
+                period_type=ReportPeriodType.WEEKLY,
+                period_start=date(2026, 3, 1),
+                period_end=date(2026, 3, 7),
+                report_markdown="# report",
+            )
+        )
+        session.commit()
+
+        stored_value = session.execute(text("SELECT period_type FROM review_report")).scalar_one()
+        loaded_value = session.execute(select(ReviewReport.period_type)).scalar_one()
+
+    assert stored_value == "weekly"
+    assert loaded_value is ReportPeriodType.WEEKLY

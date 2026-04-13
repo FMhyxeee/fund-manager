@@ -2,13 +2,73 @@
 
 from __future__ import annotations
 
+from collections.abc import Iterable
+from dataclasses import dataclass
 from datetime import date
 from decimal import Decimal
 
 from sqlalchemy import select
 from sqlalchemy.orm import Session, joinedload
 
-from fund_manager.storage.models import PositionLot
+from fund_manager.storage.models import FundMaster, PositionLot
+
+
+@dataclass(frozen=True)
+class ActivePortfolioFund:
+    """One actively held fund resolved from authoritative position lots."""
+
+    fund_id: int
+    fund_code: str
+    fund_name: str
+
+
+def resolve_authoritative_position_lots(
+    position_lots: Iterable[PositionLot],
+) -> tuple[PositionLot, ...]:
+    """Resolve append-only lot rows to the authoritative lot set at one point in time."""
+    latest_by_lot_key: dict[str, PositionLot] = {}
+    for position_lot in position_lots:
+        latest_by_lot_key[position_lot.lot_key] = position_lot
+
+    bootstrap_batches: dict[str, list[PositionLot]] = {}
+    tracked_lots: list[PositionLot] = []
+    for position_lot in latest_by_lot_key.values():
+        if position_lot.lot_key.startswith("initial:"):
+            batch_key = position_lot.run_id or f"bootstrap:{position_lot.id}"
+            bootstrap_batches.setdefault(batch_key, []).append(position_lot)
+        else:
+            tracked_lots.append(position_lot)
+
+    transaction_backed_fund_ids = {
+        position_lot.fund_id
+        for position_lot in tracked_lots
+        if position_lot.lot_key.startswith("txnagg:")
+    }
+
+    if bootstrap_batches:
+        latest_batch_key = max(
+            bootstrap_batches,
+            key=lambda batch_key: (
+                max(lot.as_of_date for lot in bootstrap_batches[batch_key]),
+                max(lot.id for lot in bootstrap_batches[batch_key]),
+            ),
+        )
+        tracked_lots.extend(
+            position_lot
+            for position_lot in bootstrap_batches[latest_batch_key]
+            if position_lot.fund_id not in transaction_backed_fund_ids
+        )
+
+    return tuple(
+        sorted(
+            tracked_lots,
+            key=lambda position_lot: (
+                position_lot.fund.fund_code,
+                position_lot.lot_key,
+                position_lot.id,
+            ),
+        )
+    )
 
 
 class PositionLotRepository:
@@ -66,3 +126,33 @@ class PositionLotRepository:
         )
         self._session.add(position_lot)
         return position_lot
+
+    def list_active_funds_for_portfolio_up_to(
+        self,
+        *,
+        portfolio_id: int,
+        as_of_date: date,
+    ) -> tuple[ActivePortfolioFund, ...]:
+        """Return the actively held funds for one portfolio as of a given date."""
+        position_lots = self.list_for_portfolio_up_to(
+            portfolio_id=portfolio_id,
+            as_of_date=as_of_date,
+        )
+        authoritative_lots = resolve_authoritative_position_lots(position_lots)
+        active_funds: dict[int, FundMaster] = {}
+        for position_lot in authoritative_lots:
+            if position_lot.remaining_units <= 0:
+                continue
+            active_funds[position_lot.fund_id] = position_lot.fund
+
+        return tuple(
+            ActivePortfolioFund(
+                fund_id=fund.id,
+                fund_code=fund.fund_code,
+                fund_name=fund.fund_name,
+            )
+            for fund in sorted(
+                active_funds.values(),
+                key=lambda fund: (fund.fund_code, fund.fund_name),
+            )
+        )

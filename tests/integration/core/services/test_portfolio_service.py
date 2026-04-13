@@ -240,5 +240,66 @@ def test_portfolio_service_uses_latest_bootstrap_batch_and_blocks_incomplete_per
     assert session.scalar(select(func.count()).select_from(PortfolioSnapshot)) == 0
 
 
+def test_portfolio_service_prefers_transaction_aggregate_lots_over_bootstrap_for_same_fund(
+    session: Session,
+) -> None:
+    portfolio = Portfolio(
+        portfolio_code="main",
+        portfolio_name="Main",
+        is_default=True,
+    )
+    fund = FundMaster(
+        fund_code="000001",
+        fund_name="Alpha Fund",
+        source_name="test",
+    )
+    session.add_all([portfolio, fund])
+    session.flush()
+
+    session.add_all(
+        [
+            PositionLot(
+                portfolio_id=portfolio.id,
+                fund_id=fund.id,
+                run_id="holdings-import-20260301",
+                lot_key="initial:000001:20260301:seed0001",
+                opened_on=date(2026, 3, 1),
+                as_of_date=date(2026, 3, 1),
+                remaining_units=Decimal("10.000000"),
+                average_cost_per_unit=Decimal("1.00000000"),
+                total_cost_amount=Decimal("10.0000"),
+            ),
+            PositionLot(
+                portfolio_id=portfolio.id,
+                fund_id=fund.id,
+                run_id="txnagg-sync-20260305",
+                lot_key="txnagg:000001",
+                opened_on=date(2026, 3, 1),
+                as_of_date=date(2026, 3, 5),
+                remaining_units=Decimal("6.000000"),
+                average_cost_per_unit=Decimal("1.00000000"),
+                total_cost_amount=Decimal("6.0000"),
+            ),
+            NavSnapshot(
+                fund_id=fund.id,
+                nav_date=date(2026, 3, 5),
+                unit_nav_amount=Decimal("1.20000000"),
+                source_name="test",
+            ),
+        ]
+    )
+    session.commit()
+
+    snapshot = PortfolioService(session).get_portfolio_snapshot(
+        portfolio.id,
+        as_of_date=date(2026, 3, 5),
+    )
+
+    assert snapshot.position_count == 1
+    assert snapshot.positions[0].fund_code == "000001"
+    assert snapshot.positions[0].units == Decimal("6.000000")
+    assert snapshot.positions[0].total_cost_amount == Decimal("6.0000")
+
+
 def fixture_path(filename: str) -> Path:
     return Path(__file__).resolve().parents[3] / "fixtures" / "holdings" / filename

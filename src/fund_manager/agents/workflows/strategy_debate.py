@@ -23,14 +23,20 @@ from fund_manager.agents.runtime import (
     StrategyDebateFacts,
     StrategyProposalOutput,
 )
-from fund_manager.agents.workflows.weekly_review import serialize_for_json
 from fund_manager.core.domain.metrics import PortfolioValuePoint
+from fund_manager.core.serialization import serialize_for_json
 from fund_manager.core.services import AnalyticsService, PortfolioService
 from fund_manager.storage.repo import (
     AgentDebateLogRepository,
     PortfolioRepository,
     StrategyProposalRepository,
     SystemEventLogRepository,
+)
+from fund_manager.storage.repo.protocols import (
+    AgentDebateLogRepositoryProtocol,
+    PortfolioRepositoryProtocol,
+    StrategyProposalRepositoryProtocol,
+    SystemEventLogRepositoryProtocol,
 )
 
 WORKFLOW_NAME = "strategy_debate"
@@ -65,6 +71,10 @@ class StrategyDebateWorkflow:
         strategy_agent: StrategyAgent | None = None,
         challenger_agent: ChallengerAgent | None = None,
         judge_agent: JudgeAgent | None = None,
+        portfolio_repo: PortfolioRepositoryProtocol | None = None,
+        agent_log_repo: AgentDebateLogRepositoryProtocol | None = None,
+        strategy_proposal_repo: StrategyProposalRepositoryProtocol | None = None,
+        system_event_log_repo: SystemEventLogRepositoryProtocol | None = None,
     ) -> None:
         self._session = session
         self._portfolio_service = portfolio_service or PortfolioService(session)
@@ -72,10 +82,12 @@ class StrategyDebateWorkflow:
         self._strategy_agent = strategy_agent or ManualStrategyAgent()
         self._challenger_agent = challenger_agent or ManualChallengerAgent()
         self._judge_agent = judge_agent or ManualJudgeAgent()
-        self._portfolio_repo = PortfolioRepository(session)
-        self._agent_log_repo = AgentDebateLogRepository(session)
-        self._strategy_proposal_repo = StrategyProposalRepository(session)
-        self._system_event_log_repo = SystemEventLogRepository(session)
+        self._portfolio_repo = portfolio_repo or PortfolioRepository(session)
+        self._agent_log_repo = agent_log_repo or AgentDebateLogRepository(session)
+        self._strategy_proposal_repo = strategy_proposal_repo or StrategyProposalRepository(
+            session
+        )
+        self._system_event_log_repo = system_event_log_repo or SystemEventLogRepository(session)
 
     def run(
         self,
@@ -84,21 +96,26 @@ class StrategyDebateWorkflow:
         period_start: date,
         period_end: date,
         trigger_source: str = "manual",
+        created_by: str | None = None,
+        idempotency_key: str | None = None,
+        run_id: str | None = None,
     ) -> StrategyDebateWorkflowResult:
         """Run the strategy debate workflow for one portfolio."""
         if period_start > period_end:
             msg = "period_start cannot be later than period_end."
             raise ValueError(msg)
 
-        run_id = build_strategy_debate_run_id(period_end)
+        resolved_run_id = run_id or build_strategy_debate_run_id(period_end)
         self._record_event(
             event_type="workflow_started",
             status="started",
             portfolio_id=portfolio_id,
-            run_id=run_id,
+            run_id=resolved_run_id,
             event_message="Strategy debate workflow started.",
             payload_json={
                 "trigger_source": trigger_source,
+                "created_by": created_by,
+                "idempotency_key": idempotency_key,
                 "period_start": period_start,
                 "period_end": period_end,
             },
@@ -115,7 +132,7 @@ class StrategyDebateWorkflow:
                 event_type="context_prepared",
                 status="completed",
                 portfolio_id=portfolio_id,
-                run_id=run_id,
+                run_id=resolved_run_id,
                 event_message="Coordinator prepared structured strategy debate facts.",
                 payload_json={
                     "position_count": facts.position_count,
@@ -128,7 +145,7 @@ class StrategyDebateWorkflow:
             strategy_output = self._strategy_agent.propose(facts)
             self._append_agent_log(
                 portfolio_id=portfolio_id,
-                run_id=run_id,
+                run_id=resolved_run_id,
                 agent_name=self._strategy_agent.agent_name,
                 model_name=self._strategy_agent.model_name,
                 prompt_path=self._strategy_agent.prompt.path.as_posix(),
@@ -143,7 +160,7 @@ class StrategyDebateWorkflow:
             challenger_output = self._challenger_agent.challenge(facts, strategy_output)
             self._append_agent_log(
                 portfolio_id=portfolio_id,
-                run_id=run_id,
+                run_id=resolved_run_id,
                 agent_name=self._challenger_agent.agent_name,
                 model_name=self._challenger_agent.model_name,
                 prompt_path=self._challenger_agent.prompt.path.as_posix(),
@@ -158,7 +175,7 @@ class StrategyDebateWorkflow:
             judge_output = self._judge_agent.judge(facts, strategy_output, challenger_output)
             self._append_agent_log(
                 portfolio_id=portfolio_id,
-                run_id=run_id,
+                run_id=resolved_run_id,
                 agent_name=self._judge_agent.agent_name,
                 model_name=self._judge_agent.model_name,
                 prompt_path=self._judge_agent.prompt.path.as_posix(),
@@ -181,9 +198,11 @@ class StrategyDebateWorkflow:
                         "challenger_output": challenger_output,
                         "judge_output": judge_output,
                         "execution_metadata": {
-                            "run_id": run_id,
+                            "run_id": resolved_run_id,
                             "workflow_name": WORKFLOW_NAME,
                             "trigger_source": trigger_source,
+                            "created_by": created_by,
+                            "idempotency_key": idempotency_key,
                             "prompt_paths": {
                                 "strategy": self._strategy_agent.prompt.path.as_posix(),
                                 "challenger": self._challenger_agent.prompt.path.as_posix(),
@@ -200,7 +219,7 @@ class StrategyDebateWorkflow:
                 final_decision=judge_output.final_judgment,
                 confidence_score=judge_output.confidence_score,
                 created_by_agent=self._judge_agent.agent_name,
-                run_id=run_id,
+                run_id=resolved_run_id,
                 workflow_name=WORKFLOW_NAME,
             )
 
@@ -208,7 +227,7 @@ class StrategyDebateWorkflow:
                 event_type="proposal_persisted",
                 status="completed",
                 portfolio_id=portfolio_id,
-                run_id=run_id,
+                run_id=resolved_run_id,
                 event_message="Final strategy proposal persisted.",
                 payload_json={"strategy_proposal_id": strategy_proposal.id},
                 commit=False,
@@ -217,12 +236,14 @@ class StrategyDebateWorkflow:
                 event_type="workflow_completed",
                 status="completed",
                 portfolio_id=portfolio_id,
-                run_id=run_id,
+                run_id=resolved_run_id,
                 event_message="Strategy debate workflow completed successfully.",
                 payload_json={
                     "strategy_proposal_id": strategy_proposal.id,
                     "created_by_agent": self._judge_agent.agent_name,
                     "final_decision": judge_output.final_judgment,
+                    "created_by": created_by,
+                    "idempotency_key": idempotency_key,
                 },
                 commit=False,
             )
@@ -231,16 +252,18 @@ class StrategyDebateWorkflow:
             self._session.rollback()
             self._record_failure_event(
                 portfolio_id=portfolio_id,
-                run_id=run_id,
+                run_id=resolved_run_id,
                 period_start=period_start,
                 period_end=period_end,
                 trigger_source=trigger_source,
+                created_by=created_by,
+                idempotency_key=idempotency_key,
                 error=exc,
             )
             raise
 
         return StrategyDebateWorkflowResult(
-            run_id=run_id,
+            run_id=resolved_run_id,
             workflow_name=WORKFLOW_NAME,
             portfolio_id=portfolio_id,
             period_start=period_start,
@@ -475,6 +498,8 @@ class StrategyDebateWorkflow:
         period_start: date,
         period_end: date,
         trigger_source: str,
+        created_by: str | None,
+        idempotency_key: str | None,
         error: Exception,
     ) -> None:
         try:
@@ -488,6 +513,8 @@ class StrategyDebateWorkflow:
                     "period_start": period_start,
                     "period_end": period_end,
                     "trigger_source": trigger_source,
+                    "created_by": created_by,
+                    "idempotency_key": idempotency_key,
                     "error_type": type(error).__name__,
                 },
                 commit=True,

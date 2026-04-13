@@ -2,235 +2,297 @@
 
 Personal, self-hosted, agent-driven fund portfolio review and strategy assistant.
 
-一个基于确定性会计核心 + AI Agent 驱动的基金组合管理系统。自动采集基金净值数据，生成持仓分析报告，并通过多 Agent 策略辩论辅助投资决策。
+`fund-manager` 是一个以确定性账本为核心、以 Agent 为分析层的个人基金组合管理系统。
+它的定位是决策支持，不是自动交易。
 
-> ⚠️ 这是决策支持系统，**不是**自动交易系统。
+## 当前状态
 
-## ✨ 功能特性
+截至当前仓库版本，已经落地的主线能力包括：
 
-- **📋 基金主数据管理** — 26,000+ 只公募基金信息，通过 AKShare 自动采集
-- **📈 净值历史追踪** — 自动拉取并存储基金 NAV 历史，支持批量导入
-- **💼 持仓与交易记录** — CSV 导入或手动录入，append-only 不可篡改
-- **📊 确定性组合指标** — 收益率、波动率、夏普比率、最大回撤等
-- **🤖 Agent 驱动的周报** — 单 Agent 一键生成持仓分析周报
-- **⚔️ 多 Agent 策略辩论** — StrategyAgent → ChallengerAgent → JudgeAgent 三方辩论
-- **⏰ 定时任务** — 内置 Scheduler，支持每日/每周/每月自动任务
-- **🌐 REST API** — FastAPI 驱动的 8 个 API 端点
-- **🖥️ Web Dashboard** — Jinja2 模板渲染，支持亮/暗主题
+- 基金主数据、交易、持仓 lot、净值快照、组合快照、报告、策略提案等持久化模型
+- 持仓 CSV / 交易 CSV 导入，支持 `dry_run`
+- AKShare 适配器，支持基金资料和净值历史读取
+- 每日持仓基金数据同步：刷新 `fund_master` 基础资料并增量写入 `nav_snapshot`
+- 确定性的组合快照和组合指标计算
+- 每日快照任务、每周复盘工作流、每月策略辩论工作流
+- FastAPI API、HTML Dashboard、可选 MCP 只读服务
 
-## 🏗️ 系统架构
+README 只描述当前已实现内容；产品规划、历史文档和系统边界说明见 [`doc/`](./doc)。
 
+## 核心能力
+
+- **确定性组合统计**
+  - 基于 `position_lot` 和 `nav_snapshot` 计算持仓、市值、浮盈亏、权重、日/周/月收益、区间收益、最大回撤
+  - 对缺失净值显式标记，不会 silently 当作 0
+- **基金数据同步**
+  - 通过 AKShare 获取基金公开资料和净值历史
+  - 每日只针对当前持仓基金做增量同步
+  - 当前落库重点是 `fund_master` 和 `nav_snapshot`
+- **导入与留痕**
+  - 导入初始化持仓
+  - 导入交易流水
+  - 交易、快照、报告、策略提案、事件日志均保留历史记录
+- **工作流**
+  - `daily_snapshot`: 先同步基金数据，再保存组合快照
+  - `weekly_review`: 生成结构化周报并持久化
+  - `monthly_strategy_debate`: Strategy / Challenger / Judge 三方辩论并保存结论
+- **接口层**
+  - REST API
+  - HTML Dashboard
+  - 可选 MCP 服务，提供只读查询和模型组合模拟
+
+## 系统结构
+
+```text
+fund-manager/
+├─ src/fund_manager/
+│  ├─ apps/api/          FastAPI 路由与 Dashboard
+│  ├─ core/domain/       纯计算逻辑
+│  ├─ core/services/     组合统计、基金同步等确定性服务
+│  ├─ data_adapters/     AKShare 与 CSV 导入适配器
+│  ├─ storage/           SQLAlchemy 模型、Repo、Alembic
+│  ├─ agents/            Agent runtime、tools、workflows、prompts
+│  ├─ scheduler/         日 / 周 / 月任务
+│  └─ mcp/               可选 MCP 传输层
+├─ scripts/              批量导入和日报脚本
+├─ tests/                单元测试与集成测试
+└─ doc/                  蓝图、架构、技术文档、维护提示词
 ```
-┌─────────────────────────────────────────────────┐
-│                   Web Dashboard                  │
-├─────────────────────────────────────────────────┤
-│                   REST API (FastAPI)              │
-├────────────┬────────────┬───────────────────────┤
-│  Scheduler  │   Agents   │     Reports           │
-│  (cron)     │  (LLM)     │   (PDF/MD)            │
-├────────────┴────────────┴───────────────────────┤
-│            Core Services (metrics, snapshots)     │
-├─────────────────────────────────────────────────┤
-│      SQLAlchemy + Alembic (SQLite / PostgreSQL)   │
-├─────────────────────────────────────────────────┤
-│         AKShare Data Adapter (26k+ funds)         │
-└─────────────────────────────────────────────────┘
-```
 
-## 📦 技术栈
+## 安装
 
-| 组件 | 技术 |
-|------|------|
-| 语言 | Python 3.12+ |
-| Web 框架 | FastAPI + Uvicorn |
-| ORM | SQLAlchemy 2.0 |
-| 数据库迁移 | Alembic |
-| 数据源 | AKShare |
-| 任务调度 | 内置 Scheduler |
-| Agent | Strategy / Challenger / Judge 多 Agent |
-| 模板 | Jinja2 (Dashboard) |
-| 测试 | pytest (122 tests) |
-
-## 🚀 快速开始
-
-### 1. 安装
+### 1. 基础安装
 
 ```bash
-git clone https://github.com/FMhyxeee/fund-manager.git
+git clone <your-repo-url>
 cd fund-manager
+uv sync --extra dev --extra data
+```
+
+如果不用 `uv`，也可以：
+
+```bash
 python -m venv .venv
 source .venv/bin/activate
 pip install -e ".[dev,data]"
 ```
 
-### 2. 初始化数据库
+### 2. 可选 MCP 依赖
+
+如果需要 MCP 服务，再安装：
 
 ```bash
-cd src/fund_manager/storage
-alembic upgrade head
+uv sync --extra mcp
 ```
 
-### 3. 导入基金数据
+或：
 
 ```bash
-# 导入全部基金主数据（约 26,000 只）
-PYTHONPATH=src python scripts/import_all_funds.py
-
-# 导入单只基金 NAV 历史
-PYTHONPATH=src python -c "
-from fund_manager.data_adapters.akshare_adapter import AkshareFundDataAdapter
-adapter = AkshareFundDataAdapter()
-nav = adapter.get_fund_nav_history('012348')
-print(f'共 {len(nav.points)} 条记录')
-"
-
-# 批量导入所有基金 30 天 NAV（耗时约 1 小时）
-PYTHONPATH=src python scripts/import_all_nav_history.py
+pip install -e ".[mcp]"
 ```
 
-### 4. 启动 API 服务
+## 初始化数据库
 
 ```bash
-PYTHONPATH=src uvicorn fund_manager.apps.api.main:app --reload --port 8000
+uv run alembic upgrade head
 ```
 
-访问：
-- API 文档: http://localhost:8000/docs
-- Dashboard: http://localhost:8000/dashboard
+默认 SQLite 数据库位于 `./data/fund_manager.db`。
+如果配置 `DATABASE_URL=sqlite:///./...`，目录会自动创建。
 
-### 5. 录入持仓
+## 常用命令
+
+### 启动 API
 
 ```bash
-PYTHONPATH=src python -c "
-from sqlalchemy import create_engine, text
-from datetime import date
-
-engine = create_engine('sqlite:///data/fund_manager.db')
-with engine.connect() as c:
-    # 创建组合
-    c.execute(text(\"\"\"INSERT INTO portfolio (portfolio_code, portfolio_name, base_currency_code, is_default, created_at, updated_at)
-        VALUES ('DEFAULT', '我的组合', 'CNY', 1, datetime('now'), datetime('now'))\"\"\"))
-    # 买入记录
-    c.execute(text(\"\"\"INSERT INTO \\\"transaction\\\"
-        (portfolio_id, fund_id, trade_date, trade_type, units, gross_amount, nav_per_unit, source_name, note, created_at)
-        VALUES (1, (SELECT id FROM fund_master WHERE fund_code='012348'),
-        '2026-04-02', 'buy', 56544.13, 36617.98, 0.6476, 'manual', '分笔买入', datetime('now'))\"\"\"))
-    c.commit()
-"
+uv run fund-manager-api
 ```
 
-## 📊 API 端点
-
-| 方法 | 路径 | 说明 |
-|------|------|------|
-| GET | `/api/v1/health` | 健康检查 |
-| GET | `/api/v1/funds/search?q=恒生科技` | 基金搜索 |
-| GET | `/api/v1/funds/{fund_code}/profile` | 基金详情 |
-| GET | `/api/v1/funds/{fund_code}/nav?days=30` | 净值历史 |
-| POST | `/api/v1/imports/holdings` | 导入持仓 CSV |
-| POST | `/api/v1/imports/transactions` | 导入交易 CSV |
-| GET | `/api/v1/portfolios/{id}/snapshot?as_of_date=2026-04-02` | 组合快照 |
-| POST | `/api/v1/workflows/weekly-review` | 触发周报 |
-| POST | `/api/v1/workflows/strategy-debate` | 触发策略辩论 |
-
-## 🤖 Agent 工作流
-
-### 周报生成
-
-```python
-from fund_manager.agents.runtime.strategy_agent import StrategyAgent
-
-agent = StrategyAgent(db_session)
-report = agent.run_weekly_review(portfolio_id=1, as_of_date="2026-04-02")
-```
-
-### 策略辩论
-
-三方辩论流程：
-
-```
-StrategyAgent (提出建议)
-    ↓
-ChallengerAgent (质疑方案)
-    ↓
-JudgeAgent (综合评判)
-    ↓
-最终策略报告
-```
-
-辩论过程完整记录在 `agent_debate_log` 表中，可追溯审计。
-
-## 📂 项目结构
-
-```
-fund-manager/
-├── src/fund_manager/
-│   ├── apps/
-│   │   └── api/           # FastAPI 路由、模板、依赖注入
-│   ├── core/              # 领域模型、配置
-│   ├── data_adapters/     # AKShare 数据适配器
-│   ├── storage/           # SQLAlchemy 模型、Repo、Alembic 迁移
-│   ├── agents/            # Agent prompts、tools、workflows、runtime
-│   ├── scheduler/         # 定时任务（日/周/月）
-│   └── reports/           # 报告生成
-├── tests/
-│   ├── unit/              # 单元测试
-│   └── integration/       # 集成测试
-├── scripts/               # 运维脚本
-│   ├── import_all_funds.py
-│   ├── import_all_nav_history.py
-│   └── portfolio_daily_report.py
-├── doc/                   # 设计文档
-├── data/                  # SQLite 数据库
-└── alembic/               # 数据库迁移
-```
-
-## 🧪 测试
+或：
 
 ```bash
-PYTHONPATH=src pytest -v        # 运行全部 122 个测试
-PYTHONPATH=src pytest tests/unit/    # 仅单元测试
-PYTHONPATH=src pytest tests/integration/  # 仅集成测试
+uv run uvicorn fund_manager.apps.api.main:app --reload
 ```
 
-## 📋 定时报告
+默认访问地址：
 
-系统内置每日持仓报告脚本，可配合 OpenClaw cron 使用：
+- API Docs: `http://127.0.0.1:8000/api/v1/docs`
+- OpenAPI: `http://127.0.0.1:8000/api/v1/openapi.json`
+- Dashboard: `http://127.0.0.1:8000/api/v1/dashboard`
+
+### 运行 Scheduler
 
 ```bash
-# 手动运行
-PYTHONPATH=src python scripts/portfolio_daily_report.py
+uv run fund-manager-scheduler daily --portfolio-id 1
+uv run fund-manager-scheduler weekly --portfolio-id 1
+uv run fund-manager-scheduler monthly --portfolio-id 1
 ```
 
-输出示例：
+常用可选参数：
 
-```
-📊 每日持仓报告
+- `--as-of-date YYYY-MM-DD`
+- `--job-name daily_snapshot|weekly_review|monthly_strategy_debate`
 
-🔴 天弘恒生科技ETF联接A（012348）
-份额: 56,544.13 ｜ 成本: ¥36,617.98（¥0.6476/份）
-最新净值: ¥0.6476（2026-04-02）
-市值: ¥36,617.98 ｜ 浮动盈亏: ¥-0.00（-0.00%）
-近30日波动率: 27.0% ｜ 近30日收益: -13.89%
-近5日走势:
-  2026-04-02 0.6476 (-1.77%)
-  2026-04-01 0.6593 (+1.93%)
-  2026-04-01 0.6468 (-0.92%)
-  ...
+### 运行 Admin CLI
 
-━━━━━━━━━━━━━━
-💼 组合总成本: ¥36,617.98
-💰 组合总市值: ¥36,617.98
-📈 总浮动盈亏: ¥-0.00（-0.00%）
+```bash
+uv run fund-manager-admin policy show --portfolio-id 1 --as-of-date 2026-04-12
+uv run fund-manager-admin decision run --portfolio-id 1 --decision-date 2026-04-12
+uv run fund-manager-admin decision feedback --decision-run-id 1 --action-index 0 --feedback-status executed
+uv run fund-manager-admin workflow run daily-snapshot --portfolio-id 1 --as-of-date 2026-04-12
+uv run fund-manager-admin workflow run weekly-review --portfolio-id 1 --period-end 2026-04-12
+uv run fund-manager-admin workflow run monthly-strategy-debate --portfolio-id 1 --period-end 2026-04-12
 ```
 
-## 🔧 设计原则
+用途定位：
 
-1. **确定性优先** — 所有会计指标基于持久化数据确定性地计算，不存在幻觉
-2. **Append-Only 历史** — 交易记录和快照不可修改，保证审计完整性
-3. **Agent 解释而非替代** — AI Agent 提供建议和挑战，不执行交易
-4. **数据自托管** — 所有数据存储在本地 SQLite，不依赖第三方 SaaS
+- `fund-manager-scheduler`: 频率驱动 job 触发
+- `fund-manager-admin`: 动作驱动 domain command，适合同机自动化、OpenClaw 编排和人工排障
 
-## 📄 License
+### 运行脚本
 
-Proprietary — 个人使用
+```bash
+uv run python scripts/import_all_funds.py
+uv run python scripts/import_all_nav_history.py
+uv run python scripts/portfolio_daily_report.py
+```
+
+脚本定位：
+
+- `import_all_funds.py`: 一次性批量导入基金主数据
+- `import_all_nav_history.py`: 批量回填基金净值历史
+- `portfolio_daily_report.py`: 基于本地 canonical 数据生成每日持仓报告
+
+## REST API
+
+当前实际提供的 REST 端点如下：
+
+| Method | Path | 说明 |
+| --- | --- | --- |
+| `GET` | `/api/v1/health` | 健康检查 |
+| `GET` | `/api/v1/dashboard` | HTML Dashboard |
+| `GET` | `/api/v1/portfolios` | 组合列表 |
+| `GET` | `/api/v1/portfolios/{portfolio_id}/snapshot` | 组合快照 |
+| `GET` | `/api/v1/portfolios/{portfolio_id}/positions` | 持仓明细 |
+| `GET` | `/api/v1/portfolios/{portfolio_id}/metrics` | 组合指标 |
+| `GET` | `/api/v1/portfolios/{portfolio_id}/valuation-history` | 组合估值历史 |
+| `GET` | `/api/v1/portfolios/{portfolio_id}/latest-report` | 最新周报详情 |
+| `GET` | `/api/v1/portfolios/{portfolio_id}/latest-strategy-proposal` | 最新策略提案详情 |
+| `GET` | `/api/v1/funds/{fund_code}` | 基金基础资料 |
+| `GET` | `/api/v1/funds/{fund_code}/nav-history` | 基金净值历史 |
+| `GET` | `/api/v1/policies/active` | 生效中的组合 policy |
+| `POST` | `/api/v1/policies` | append-only 创建 policy |
+| `GET` | `/api/v1/decisions` | 决策记录列表 |
+| `GET` | `/api/v1/decisions/{decision_run_id}` | 单条决策详情 |
+| `POST` | `/api/v1/decisions/{decision_run_id}/feedback` | 决策动作反馈 |
+| `GET` | `/api/v1/decisions/{decision_run_id}/feedback` | 决策反馈历史 |
+| `GET` | `/api/v1/reports` | 周报列表 |
+| `GET` | `/api/v1/reports/{report_id}` | 周报详情 |
+| `GET` | `/api/v1/strategy-proposals/{proposal_id}` | 策略提案详情 |
+| `POST` | `/api/v1/imports/holdings` | 导入持仓 CSV |
+| `POST` | `/api/v1/imports/transactions` | 导入交易 CSV |
+| `POST` | `/api/v1/workflows/daily-snapshot/run` | 手动触发日快照 |
+| `POST` | `/api/v1/workflows/daily-decision/run` | 手动触发日决策 |
+| `POST` | `/api/v1/workflows/weekly-review/run` | 手动触发周报 |
+| `POST` | `/api/v1/workflows/monthly-strategy-debate/run` | 手动触发月度策略辩论 |
+
+## Dashboard
+
+Dashboard 当前展示：
+
+- 默认组合的汇总统计
+- 当前持仓表格
+- 缺失净值告警
+- 最近的报告记录
+
+模板位于 [`dashboard.html`](./src/fund_manager/apps/api/templates/dashboard.html)。
+
+## MCP 服务
+
+安装 `mcp` extra 后可启动：
+
+```bash
+uv run fund-manager-mcp
+```
+
+当前 MCP tools：
+
+- `portfolio_list`
+- `portfolio_snapshot`
+- `portfolio_positions`
+- `portfolio_valuation_history`
+- `portfolio_metrics`
+- `portfolio_active_policy`
+- `fund_profile`
+- `fund_nav_history`
+- `decision_run_list`
+- `decision_run_get`
+- `decision_feedback_list`
+- `review_report_get`
+- `simulate_model_portfolio`
+
+当前内部 typed tools 还包括：
+
+- `get_portfolio_metrics`
+- `get_portfolio_valuation_history`
+- `get_active_policy`
+- `run_daily_decision`
+- `get_decision_run`
+- `record_decision_feedback`
+
+## 主要工作流
+
+### Daily
+
+1. 找出当前组合的有效持仓基金
+2. 用 AKShare 刷新基金基础资料
+3. 增量写入最新净值到 `nav_snapshot`
+4. 保存当日 `portfolio_snapshot`
+
+### Weekly Review
+
+1. 汇总组合事实和估值历史
+2. 调用 ReviewAgent 产出结构化周报
+3. 渲染 markdown 并持久化到 `review_report`
+
+### Monthly Strategy Debate
+
+1. 整理结构化事实
+2. `StrategyAgent` 提建议
+3. `ChallengerAgent` 提反驳
+4. `JudgeAgent` 定稿
+5. 持久化到 `strategy_proposal` 和 `agent_debate_log`
+
+## 测试与质量
+
+当前仓库可收集到 `133` 个测试用例。
+
+```bash
+make install
+make format
+make lint
+make typecheck
+make test
+make check
+```
+
+等价命令见 [`Makefile`](./Makefile)。
+
+## 文档索引
+
+- [`doc/01-蓝图.md`](./doc/01-蓝图.md): 产品目标、范围与当前状态
+- [`doc/02-高阶方案.md`](./doc/02-高阶方案.md): 架构与主流程
+- [`doc/03-技术文档.md`](./doc/03-技术文档.md): 技术结构、接口与运行方式
+- [`doc/04-仓库初始化清单.md`](./doc/04-仓库初始化清单.md): bootstrap 记录与完成情况
+- [`doc/05-Codex启动提示词.md`](./doc/05-Codex启动提示词.md): 给工程代理用的维护提示词
+
+## 设计原则
+
+1. 确定性优先，LLM 不参与权威账本计算。
+2. 历史记录 append-only，可审计、可回放。
+3. Agent 负责解释、复盘、挑战和建议，不直接执行交易。
+4. 对外部数据源做适配和标准化，不把第三方字段形状泄漏到领域层。
+
+## License
+
+Proprietary，个人使用。

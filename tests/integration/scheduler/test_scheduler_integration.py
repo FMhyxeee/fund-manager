@@ -20,15 +20,22 @@ from fund_manager.scheduler.types import (
     JobStatus,
     TriggerSource,
 )
+from fund_manager.core.services import FundSyncDetailDTO, PortfolioFundSyncResultDTO
 from fund_manager.storage.models import (
     Base,
+    DecisionRun,
     FundMaster,
     NavSnapshot,
     Portfolio,
+    PortfolioSnapshot,
     PositionLot,
     SystemEventLog,
 )
-from fund_manager.storage.repo import SystemEventLogRepository
+from fund_manager.storage.repo import (
+    PortfolioPolicyRepository,
+    PortfolioPolicyTargetCreate,
+    SystemEventLogRepository,
+)
 
 
 def _seed_portfolio(session: Session) -> Portfolio:
@@ -126,6 +133,33 @@ def _seed_portfolio(session: Session) -> Portfolio:
     return portfolio
 
 
+def _seed_policy(session: Session, portfolio: Portfolio) -> None:
+    alpha_fund = session.execute(
+        select(FundMaster).where(FundMaster.fund_code == "000001")
+    ).scalar_one()
+    beta_fund = session.execute(
+        select(FundMaster).where(FundMaster.fund_code == "000002")
+    ).scalar_one()
+    PortfolioPolicyRepository(session).append(
+        portfolio_id=portfolio.id,
+        policy_name="core-balance",
+        effective_from=date(2026, 3, 1),
+        rebalance_threshold_ratio=Decimal("0.020000"),
+        targets=(
+            PortfolioPolicyTargetCreate(
+                fund_id=alpha_fund.id,
+                target_weight_ratio=Decimal("0.500000"),
+            ),
+            PortfolioPolicyTargetCreate(
+                fund_id=beta_fund.id,
+                target_weight_ratio=Decimal("0.500000"),
+            ),
+        ),
+        created_by="test",
+    )
+    session.commit()
+
+
 class TestSchedulerWeeklyReviewIntegration:
     def test_run_weekly_job_produces_report_and_event_log(self, session: Session) -> None:
         portfolio = _seed_portfolio(session)
@@ -173,9 +207,78 @@ class TestSchedulerDailySnapshotIntegration:
     def test_run_daily_job_produces_snapshot(self, session: Session) -> None:
         portfolio = _seed_portfolio(session)
 
+        class FakeDailySyncService:
+            def __init__(self, current_session: Session) -> None:
+                self._session = current_session
+
+            def sync_portfolio_funds(
+                self,
+                portfolio_id: int,
+                *,
+                as_of_date: date,
+            ) -> PortfolioFundSyncResultDTO:
+                del portfolio_id
+                alpha_fund = session.execute(
+                    select(FundMaster).where(FundMaster.fund_code == "000001")
+                ).scalar_one()
+                beta_fund = session.execute(
+                    select(FundMaster).where(FundMaster.fund_code == "000002")
+                ).scalar_one()
+                self._session.add_all(
+                    [
+                        NavSnapshot(
+                            fund_id=alpha_fund.id,
+                            nav_date=as_of_date,
+                            unit_nav_amount=Decimal("1.60000000"),
+                            daily_return_ratio=Decimal("0.066667"),
+                            source_name="fake",
+                        ),
+                        NavSnapshot(
+                            fund_id=beta_fund.id,
+                            nav_date=as_of_date,
+                            unit_nav_amount=Decimal("3.30000000"),
+                            daily_return_ratio=Decimal("0.064516"),
+                            source_name="fake",
+                        ),
+                    ]
+                )
+                return PortfolioFundSyncResultDTO(
+                    portfolio_id=portfolio.id,
+                    as_of_date=as_of_date,
+                    processed_fund_count=2,
+                    profile_updated_count=0,
+                    nav_records_inserted=2,
+                    failed_fund_codes=(),
+                    funds=(
+                        FundSyncDetailDTO(
+                            fund_id=alpha_fund.id,
+                            fund_code=alpha_fund.fund_code,
+                            fund_name=alpha_fund.fund_name,
+                            profile_updated=False,
+                            nav_records_inserted=1,
+                            warnings=(),
+                            errors=(),
+                        ),
+                        FundSyncDetailDTO(
+                            fund_id=beta_fund.id,
+                            fund_code=beta_fund.fund_code,
+                            fund_name=beta_fund.fund_name,
+                            profile_updated=False,
+                            nav_records_inserted=1,
+                            warnings=(),
+                            errors=(),
+                        ),
+                    ),
+                )
+
         registry = SchedulerRegistry()
         event_repo = SystemEventLogRepository(session)
-        register_default_jobs(session, registry, as_of_date=date(2026, 3, 15))
+        register_default_jobs(
+            session,
+            registry,
+            as_of_date=date(2026, 3, 15),
+            fund_data_sync_service_factory=FakeDailySyncService,
+        )
 
         engine = SchedulerEngine(
             registry,
@@ -192,7 +295,45 @@ class TestSchedulerDailySnapshotIntegration:
 
         assert result.status == JobStatus.COMPLETED
         assert result.entry_name == "daily_snapshot"
+        assert result.payload["sync"]["nav_records_inserted"] == 2
+        assert result.payload["snapshot"]["snapshot_record_id"] is not None
         session.commit()
+        persisted_row = session.execute(select(PortfolioSnapshot)).scalar_one()
+        assert persisted_row.snapshot_date == date(2026, 3, 15)
+        assert persisted_row.total_market_value_amount == Decimal("35.7000")
+
+
+class TestSchedulerDailyDecisionIntegration:
+    def test_run_daily_decision_job_persists_decision_run(self, session: Session) -> None:
+        portfolio = _seed_portfolio(session)
+        _seed_policy(session, portfolio)
+
+        registry = SchedulerRegistry()
+        event_repo = SystemEventLogRepository(session)
+        register_default_jobs(session, registry, as_of_date=date(2026, 3, 15))
+
+        engine = SchedulerEngine(
+            registry,
+            scheduler_logger=SchedulerLogger(),
+            system_event_log_repo=event_repo,
+        )
+
+        result = engine.run_job(
+            "daily_decision",
+            JobFrequency.DAILY,
+            portfolio_id=portfolio.id,
+            trigger_source=TriggerSource.SCHEDULED,
+        )
+
+        assert result.status == JobStatus.COMPLETED
+        assert result.entry_name == "daily_decision"
+        assert result.payload["final_decision"] == "rebalance_required"
+        assert result.payload["action_count"] == 2
+
+        session.commit()
+        persisted_run = session.execute(select(DecisionRun)).scalar_one()
+        assert persisted_run.workflow_name == "daily_decision"
+        assert persisted_run.final_decision == "rebalance_required"
 
 
 class TestSchedulerRegistryDefaultJobs:
@@ -201,7 +342,7 @@ class TestSchedulerRegistryDefaultJobs:
         register_default_jobs(session, registry, as_of_date=date(2026, 3, 15))
 
         all_entries = registry.list_all()
-        assert len(all_entries) == 3
+        assert len(all_entries) == 4
 
         frequencies = {e.frequency for e in all_entries}
         assert frequencies == {JobFrequency.DAILY, JobFrequency.WEEKLY, JobFrequency.MONTHLY}

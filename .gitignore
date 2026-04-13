@@ -15,8 +15,9 @@ htmlcov/
 build/
 dist/
 
-data/
+/data/
 var/
+logs/
 
 .idea/
 .vscode/

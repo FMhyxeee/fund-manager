@@ -24,25 +24,85 @@ def make_daily_snapshot_job(
     session: Any,
     *,
     as_of_date: date | None = None,
+    fund_data_sync_service_factory: Any | None = None,
 ) -> ScheduleEntry:
-    from fund_manager.core.services import PortfolioService
+    from fund_manager.core.services import FundDataSyncService, PortfolioService
 
     as_of = as_of_date or date.today()
 
     def job_fn(*, portfolio_id: int, trigger_source: str) -> dict[str, Any]:
+        sync_service = (
+            fund_data_sync_service_factory(session)
+            if fund_data_sync_service_factory is not None
+            else FundDataSyncService(session)
+        )
+        sync_result = sync_service.sync_portfolio_funds(
+            portfolio_id,
+            as_of_date=as_of,
+        )
+        session.commit()
+
         portfolio_service = PortfolioService(session)
-        snapshot = portfolio_service.get_portfolio_snapshot(
+        snapshot = portfolio_service.save_portfolio_snapshot(
             portfolio_id,
             as_of_date=as_of,
             workflow_name="daily_snapshot",
         )
-        return {"snapshot_id": snapshot.position_count, "as_of_date": as_of.isoformat()}
+        return {
+            "as_of_date": as_of.isoformat(),
+            "sync": sync_result.to_dict(),
+            "snapshot": {
+                "snapshot_record_id": snapshot.snapshot_record_id,
+                "position_count": snapshot.position_count,
+                "total_market_value_amount": (
+                    str(snapshot.total_market_value_amount)
+                    if snapshot.total_market_value_amount is not None
+                    else None
+                ),
+                "unrealized_pnl_amount": (
+                    str(snapshot.unrealized_pnl_amount)
+                    if snapshot.unrealized_pnl_amount is not None
+                    else None
+                ),
+            },
+        }
 
     return ScheduleEntry(
         name="daily_snapshot",
         frequency=JobFrequency.DAILY,
         job_fn=job_fn,
         description="Refresh portfolio snapshot with latest NAV data.",
+    )
+
+
+def make_daily_decision_job(
+    session: Any,
+    *,
+    as_of_date: date | None = None,
+) -> ScheduleEntry:
+    from fund_manager.agents.workflows.daily_decision import DailyDecisionWorkflow
+
+    as_of = as_of_date or date.today()
+
+    def job_fn(*, portfolio_id: int, trigger_source: str) -> dict[str, Any]:
+        workflow = DailyDecisionWorkflow(session)
+        result = workflow.run(
+            portfolio_id=portfolio_id,
+            decision_date=as_of,
+            trigger_source=trigger_source,
+        )
+        return {
+            "decision_run_id": result.decision_run_record_id,
+            "run_id": result.run_id,
+            "final_decision": result.decision.final_decision,
+            "action_count": result.decision.action_count,
+        }
+
+    return ScheduleEntry(
+        name="daily_decision",
+        frequency=JobFrequency.DAILY,
+        job_fn=job_fn,
+        description="Evaluate the portfolio against the active policy and persist actions.",
     )
 
 
@@ -110,7 +170,15 @@ def register_default_jobs(
     registry: Any,
     *,
     as_of_date: date | None = None,
+    fund_data_sync_service_factory: Any | None = None,
 ) -> None:
-    registry.register(make_daily_snapshot_job(session, as_of_date=as_of_date))
+    registry.register(
+        make_daily_snapshot_job(
+            session,
+            as_of_date=as_of_date,
+            fund_data_sync_service_factory=fund_data_sync_service_factory,
+        )
+    )
+    registry.register(make_daily_decision_job(session, as_of_date=as_of_date))
     registry.register(make_weekly_review_job(session, as_of_date=as_of_date))
     registry.register(make_monthly_strategy_job(session, as_of_date=as_of_date))

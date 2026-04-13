@@ -3,7 +3,7 @@
 from functools import lru_cache
 from pathlib import Path
 
-from sqlalchemy import Engine, MetaData, create_engine
+from sqlalchemy import Engine, MetaData, create_engine, event
 from sqlalchemy.orm import DeclarativeBase, Session, sessionmaker
 
 from fund_manager.core.config import get_settings
@@ -33,7 +33,10 @@ def get_engine() -> Engine:
     connect_args = (
         {"check_same_thread": False} if settings.database_url.startswith("sqlite") else {}
     )
-    return create_engine(settings.database_url, connect_args=connect_args, pool_pre_ping=True)
+    engine = create_engine(settings.database_url, connect_args=connect_args, pool_pre_ping=True)
+    if settings.database_url.startswith("sqlite"):
+        event.listen(engine, "connect", _enable_sqlite_foreign_keys)
+    return engine
 
 
 @lru_cache
@@ -45,3 +48,17 @@ def get_session_factory() -> sessionmaker[Session]:
         autocommit=False,
         expire_on_commit=False,
     )
+
+
+def _enable_sqlite_foreign_keys(dbapi_connection, _connection_record) -> None:
+    """Keep SQLite foreign key constraints enforced for every connection."""
+    previous_autocommit = getattr(dbapi_connection, "autocommit", None)
+    if previous_autocommit is not None:
+        dbapi_connection.autocommit = True
+    cursor = dbapi_connection.cursor()
+    try:
+        cursor.execute("PRAGMA foreign_keys=ON")
+    finally:
+        cursor.close()
+        if previous_autocommit is not None:
+            dbapi_connection.autocommit = previous_autocommit

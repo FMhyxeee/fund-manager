@@ -97,6 +97,7 @@ class ManualStrategyAgent:
         *,
         prompt_name: str = "strategy_agent.md",
     ) -> None:
+        # Placeholder manual runtime until a debate-capable strategy agent is wired in.
         self._prompt = load_prompt_definition(prompt_name)
 
     @property

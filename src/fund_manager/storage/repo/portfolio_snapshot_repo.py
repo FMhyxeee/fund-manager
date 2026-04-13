@@ -5,6 +5,7 @@ from __future__ import annotations
 from datetime import date
 from decimal import Decimal
 
+from sqlalchemy import select
 from sqlalchemy.orm import Session
 
 from fund_manager.storage.models import PortfolioSnapshot
@@ -15,6 +16,11 @@ class PortfolioSnapshotRepository:
 
     def __init__(self, session: Session) -> None:
         self._session = session
+
+    def get_by_run_id(self, run_id: str) -> PortfolioSnapshot | None:
+        """Fetch one portfolio snapshot by run ID."""
+        statement = select(PortfolioSnapshot).where(PortfolioSnapshot.run_id == run_id).limit(1)
+        return self._session.execute(statement).scalars().first()
 
     def append(
         self,
