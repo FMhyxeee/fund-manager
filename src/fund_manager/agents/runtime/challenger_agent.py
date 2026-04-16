@@ -1,52 +1,16 @@
-"""ChallengerAgent runtime contracts and the first manual implementation."""
+"""Manual ChallengerAgent implementation."""
 
 from __future__ import annotations
 
 import re
-from dataclasses import dataclass
-from typing import Protocol
 
-from fund_manager.agents.runtime.review_agent import PromptDefinition, load_prompt_definition
+from fund_manager.agents.runtime.shared import PromptDefinition, load_prompt_definition
 from fund_manager.agents.runtime.strategy_agent import (
     LOW_CONFIDENCE,
     MEDIUM_CONFIDENCE,
-    StrategyDebateFacts,
-    StrategyProposalOutput,
 )
-
-
-@dataclass(frozen=True)
-class ChallengerOutput:
-    """Structured critique produced by ChallengerAgent."""
-
-    summary: str
-    critique_points: tuple[str, ...]
-    evidence_gaps: tuple[str, ...]
-    counterarguments: tuple[str, ...]
-    confidence_level: str
-
-
-class ChallengerAgent(Protocol):
-    """Runtime contract for a bounded challenger agent."""
-
-    @property
-    def agent_name(self) -> str:
-        """Human-readable logical agent name."""
-
-    @property
-    def model_name(self) -> str | None:
-        """Concrete runtime identifier when available."""
-
-    @property
-    def prompt(self) -> PromptDefinition:
-        """Prompt definition used by the runtime."""
-
-    def challenge(
-        self,
-        facts: StrategyDebateFacts,
-        proposal: StrategyProposalOutput,
-    ) -> ChallengerOutput:
-        """Critique a proposal using the same prepared facts only."""
+from fund_manager.core.ai_artifacts import ChallengerOutput, StrategyProposalOutput
+from fund_manager.core.fact_packs import StrategyDebateFacts
 
 
 class ManualChallengerAgent:
@@ -145,19 +109,25 @@ class ManualChallengerAgent:
         proposal: StrategyProposalOutput,
     ) -> list[str]:
         evidence_gaps = [
-            "The current evidence does not include target allocation bands or a formal rebalance threshold.",
+            (
+                "The current evidence does not include target allocation bands or a formal "
+                "rebalance threshold."
+            ),
         ]
         if facts.valuation_point_count < 3:
             evidence_gaps.append(
-                "The valuation window is short, so recent performance may be noisy rather than durable."
+                "The valuation window is short, so recent performance may be noisy rather than "
+                "durable."
             )
         if facts.top_gainers and facts.top_laggards:
             evidence_gaps.append(
-                "The proposal lacks a breadth check showing whether gains and losses were concentrated."
+                "The proposal lacks a breadth check showing whether gains and losses were "
+                "concentrated."
             )
         if proposal.proposed_actions:
             evidence_gaps.append(
-                "The proposal does not quantify what would change the recommendation at the next review."
+                "The proposal does not quantify what would change the recommendation at the "
+                "next review."
             )
         return evidence_gaps
 
@@ -169,15 +139,18 @@ class ManualChallengerAgent:
         counterarguments: list[str] = []
         if facts.missing_nav_fund_codes:
             counterarguments.append(
-                "A wait-for-complete-data stance may be safer than acting on a partially valued portfolio."
+                "A wait-for-complete-data stance may be safer than acting on a partially "
+                "valued portfolio."
             )
         if facts.top_weight_positions:
             counterarguments.append(
-                "Concentration review may matter more than recent return direction when one holding dominates."
+                "Concentration review may matter more than recent return direction when one "
+                "holding dominates."
             )
         if proposal.proposed_actions:
             counterarguments.append(
-                "Maintaining a pure monitoring stance could be more defensible until another full review window confirms the trend."
+                "Maintaining a pure monitoring stance could be more defensible until another "
+                "full review window confirms the trend."
             )
         return counterarguments
 
@@ -213,8 +186,6 @@ def _normalize_text(text: str) -> str:
 
 
 __all__ = [
-    "ChallengerAgent",
-    "ChallengerOutput",
     "ManualChallengerAgent",
     "validate_critiques_distinct_from_proposal",
 ]

@@ -1,6 +1,6 @@
 # 05-Codex 启动提示词
 
-本文件提供一组适用于当前仓库状态的维护提示词。
+本文件提供适用于当前仓库状态的维护提示词模板。
 
 使用前提：
 
@@ -12,21 +12,26 @@
 
 - 这不是产品文档
 - 这是给工程代理用的工作提示词模板
-- 以“当前仓库已实现内容”为默认上下文，不再按 bootstrap 阶段假设项目是空的
+- 默认假设仓库已经不是 bootstrap 阶段，而是一个正在持续演进的领域内核
 
 ---
 
 ## 1. 仓库状态校准
 
 ```text
-Read AGENTS.md, README.md, and all files under doc/ first.
+Read AGENTS.md, README.md, and doc/ first.
 Then inspect the current codebase before making claims.
 
 Requirements:
 - distinguish implemented features from planned features
-- verify REST routes, scheduler jobs, and MCP tools from code
+- treat fund-manager as an investment domain kernel, not an AI shell
+- verify API routes, CLI commands, scheduler jobs, and MCP tools from code
+- verify runtime structure from code:
+  - core/fact_packs.py
+  - core/ai_artifacts.py
+  - agents/runtime/contracts.py
+  - agents/runtime/shared.py
 - keep deterministic accounting first and append-only history intact
-- do not claim workflow or API support unless it exists in code
 - update stale docs if code and docs diverge
 ```
 
@@ -39,100 +44,101 @@ Read AGENTS.md, README.md, and doc/ first.
 Audit all project documentation against the real repository state.
 
 Requirements:
-- treat README as the current-user entrypoint
-- mark blueprint/high-level docs as planning documents where needed
-- list exact implemented API routes, scheduler jobs, scripts, and MCP tools
-- remove or rewrite claims that the code does not currently support
-- keep docs concise and easy to scan
-- summarize which docs were updated and what stale claims were fixed
+- unify terminology across README, AGENTS, and doc/
+- use the following stable concepts consistently:
+  - canonical facts
+  - deterministic decisions
+  - research signals
+  - fact packs
+  - AI artifacts
+  - human execution feedback
+- mention actual module ownership when relevant
+- do not describe runtime implementation files as owners of canonical DTOs
+- summarize which docs were updated and what stale claims were removed
 ```
 
 ---
 
-## 3. Daily 数据同步增强
+## 3. 确定性领域逻辑修改
 
 ```text
 Read AGENTS.md and doc/ first.
-Extend the current daily fund sync flow without bypassing the service layer.
-
-Context:
-- the repository already has FundDataSyncService
-- daily_snapshot already runs sync first, then saves portfolio_snapshot
+Modify deterministic services carefully.
 
 Requirements:
-- preserve deterministic accounting boundaries
-- keep external API details inside data_adapters
-- reuse repositories/services instead of writing ad hoc SQL in scripts
-- update tests for sync summaries, failure handling, and downstream snapshot behavior
-- update README and technical docs if user-facing behavior changes
+- preserve canonical truth and append-only history
+- keep business logic in core/services or core/domain
+- update tests together with the change
+- never move accounting truth into prompts or runtime adapters
+- if a workflow needs AI, expose deterministic inputs through fact packs instead
 ```
 
 ---
 
-## 4. REST API 扩展
+## 4. AI Workflow / Runtime 修改
+
+```text
+Read AGENTS.md and doc/ first.
+Improve weekly review, strategy debate, or other AI-adjacent flows.
+
+Requirements:
+- facts belong in core/fact_packs.py
+- AI outputs belong in core/ai_artifacts.py
+- runtime protocols belong in agents/runtime/contracts.py
+- shared prompt helpers belong in agents/runtime/shared.py
+- manual agent modules are adapters only
+- keep persistence append-only
+- keep facts and AI artifacts separate in workflow outputs
+```
+
+---
+
+## 5. REST API / CLI / MCP 扩展
 
 ```text
 Read AGENTS.md, README.md, and doc/ first.
-Add or refine FastAPI routes for already-implemented repository capabilities.
-
-Examples:
-- fund search
-- fund NAV history
-- strategy debate trigger
-- daily sync trigger
+Add or refine external interfaces for already-implemented domain capabilities.
 
 Requirements:
-- do not invent new accounting logic in the API layer
-- keep API handlers thin
-- route all authoritative computation through services or workflows
-- return structured response models
-- add route tests and refresh README endpoint tables
+- API is the main canonical read/write surface
+- CLI is the main same-machine automation/debug surface
+- MCP stays read-mostly unless explicitly approved otherwise
+- return structured DTOs, not raw ORM objects
+- keep route handlers thin and push truth into services/workflows
+- update README and technical docs when user-facing interfaces change
 ```
 
 ---
 
-## 5. Weekly Review / Strategy Debate 增强
+## 6. Signal Layer 修改
 
 ```text
 Read AGENTS.md and doc/ first.
-Improve the existing weekly review or monthly strategy debate workflows.
+Work on watchlist, style leaders, candidate fit, or other research-signal features.
 
 Requirements:
-- preserve workflow traceability
-- keep agent prompts separate from deterministic services
-- save structured execution metadata
-- verify persisted report/proposal outputs in tests
-- update docs if workflow entrypoints or outputs change
+- keep these outputs deterministic, explainable, and reproducible
+- do not treat signal outputs as canonical accounting truth
+- do not silently turn signal outputs into policy truth or execution advice
+- if new signal DTOs are introduced, make their semantics explicit
+- update doc/08 and related architecture docs when the signal layer changes
 ```
 
 ---
 
-## 6. MCP 扩展
+## 7. 高风险修改提醒
 
 ```text
-Read AGENTS.md, README.md, and doc/ first.
-Extend the optional MCP service for read-oriented access.
+Before making changes, check whether the task touches:
+- financial formulas
+- schema semantics
+- policy evaluation behavior
+- decision persistence
+- feedback reconciliation
+- script-vs-service write boundaries
 
-Requirements:
-- keep MCP tools read-only unless explicitly approved otherwise
-- prefer existing tools/services over duplicating logic
-- return JSON-safe payloads
-- do not expose raw ORM objects
-- document any new MCP tools in README and technical docs
-```
-
----
-
-## 7. 账本与快照相关修改
-
-```text
-Read AGENTS.md and doc/ first.
-Modify accounting-related models or services carefully.
-
-Requirements:
-- every schema change must include a migration
-- every accounting behavior change must include tests
-- missing NAV must remain explicit and must not be coerced to zero
-- append-only historical truth must be preserved
-- document any changed accounting assumptions
+If yes:
+- keep the change small
+- back it with tests
+- document any changed assumptions
 ```

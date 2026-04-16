@@ -1,94 +1,22 @@
-"""StrategyAgent runtime contracts and the first manual implementation."""
+"""Manual StrategyAgent implementation."""
 
 from __future__ import annotations
 
-from dataclasses import dataclass
-from datetime import date
 from decimal import Decimal
-from typing import Protocol
 
-from fund_manager.agents.runtime.review_agent import (
+from fund_manager.agents.runtime.shared import (
     PromptDefinition,
-    ReviewPositionFact,
     format_money,
     format_ratio_as_percent,
     load_prompt_definition,
 )
+from fund_manager.core.ai_artifacts import StrategyAction, StrategyProposalOutput
+from fund_manager.core.fact_packs import StrategyDebateFacts
 
 HIGH_CONCENTRATION_RATIO = Decimal("0.400000")
 NEGATIVE_RETURN_RATIO = Decimal("0")
 LOW_CONFIDENCE = "low"
 MEDIUM_CONFIDENCE = "medium"
-
-
-@dataclass(frozen=True)
-class StrategyDebateFacts:
-    """Structured evidence sent to strategy debate agents for one workflow run."""
-
-    portfolio_id: int
-    portfolio_code: str
-    portfolio_name: str
-    base_currency_code: str
-    period_start: date
-    period_end: date
-    latest_valuation_date: date | None
-    valuation_point_count: int
-    position_count: int
-    total_cost_amount: Decimal
-    total_market_value_amount: Decimal | None
-    unrealized_pnl_amount: Decimal | None
-    period_return_ratio: Decimal | None
-    weekly_return_ratio: Decimal | None
-    monthly_return_ratio: Decimal | None
-    max_drawdown_ratio: Decimal | None
-    missing_nav_fund_codes: tuple[str, ...]
-    top_weight_positions: tuple[ReviewPositionFact, ...]
-    top_gainers: tuple[ReviewPositionFact, ...]
-    top_laggards: tuple[ReviewPositionFact, ...]
-    accounting_assumptions_note: str
-
-
-@dataclass(frozen=True)
-class StrategyAction:
-    """One evidence-backed strategy action candidate."""
-
-    action: str
-    rationale: str
-    evidence_refs: tuple[str, ...]
-    priority: str
-
-
-@dataclass(frozen=True)
-class StrategyProposalOutput:
-    """Structured proposal produced by StrategyAgent."""
-
-    summary: str
-    thesis: str
-    evidence: tuple[str, ...]
-    proposed_actions: tuple[StrategyAction, ...]
-    risks: tuple[str, ...]
-    confidence_level: str
-
-
-class StrategyAgent(Protocol):
-    """Runtime contract for a bounded strategy proposal agent."""
-
-    @property
-    def agent_name(self) -> str:
-        """Human-readable logical agent name."""
-
-    @property
-    def model_name(self) -> str | None:
-        """Concrete runtime identifier when available."""
-
-    @property
-    def prompt(self) -> PromptDefinition:
-        """Prompt definition used by the runtime."""
-
-    def propose(self, facts: StrategyDebateFacts) -> StrategyProposalOutput:
-        """Produce a structured proposal from prepared facts only."""
-
-
 class ManualStrategyAgent:
     """Deterministic placeholder StrategyAgent for the debate workflow."""
 
@@ -166,7 +94,10 @@ class ManualStrategyAgent:
                 "the largest position before adding more concentration."
             )
 
-        if facts.period_return_ratio is not None and facts.period_return_ratio < NEGATIVE_RETURN_RATIO:
+        if (
+            facts.period_return_ratio is not None
+            and facts.period_return_ratio < NEGATIVE_RETURN_RATIO
+        ):
             return (
                 "Prefer a monitor-and-review stance until the portfolio shows a steadier recovery "
                 "across another complete evidence window."
@@ -182,7 +113,10 @@ class ManualStrategyAgent:
             f"Review window: {facts.period_start.isoformat()} to {facts.period_end.isoformat()}.",
             f"Tracked positions: {facts.position_count}.",
             f"Valuation coverage: {facts.valuation_point_count} point(s).",
-            f"Total cost basis: {format_money(facts.total_cost_amount)} {facts.base_currency_code}.",
+            (
+                "Total cost basis: "
+                f"{format_money(facts.total_cost_amount)} {facts.base_currency_code}."
+            ),
         ]
         if facts.total_market_value_amount is not None:
             evidence.append(
@@ -216,7 +150,9 @@ class ManualStrategyAgent:
                     f"{format_money(laggard.unrealized_pnl_amount)} {facts.base_currency_code}."
                 )
         if facts.missing_nav_fund_codes:
-            evidence.append("Missing NAV coverage: " + ", ".join(facts.missing_nav_fund_codes) + ".")
+            evidence.append(
+                "Missing NAV coverage: " + ", ".join(facts.missing_nav_fund_codes) + "."
+            )
         return evidence
 
     def _build_actions(
@@ -228,7 +164,9 @@ class ManualStrategyAgent:
         evidence_map = set(evidence)
 
         if facts.missing_nav_fund_codes:
-            missing_nav_ref = "Missing NAV coverage: " + ", ".join(facts.missing_nav_fund_codes) + "."
+            missing_nav_ref = (
+                "Missing NAV coverage: " + ", ".join(facts.missing_nav_fund_codes) + "."
+            )
             actions.append(
                 StrategyAction(
                     action="Refresh missing NAV data before taking a stronger allocation stance.",
@@ -251,7 +189,8 @@ class ManualStrategyAgent:
                 actions.append(
                     StrategyAction(
                         action=(
-                            f"Prepare a manual concentration review for {largest_position.fund_name} "
+                            f"Prepare a manual concentration review for "
+                            f"{largest_position.fund_name} "
                             "before adding further exposure."
                         ),
                         rationale=(
@@ -297,7 +236,8 @@ class ManualStrategyAgent:
                         "continued monitoring."
                     ),
                     evidence_refs=(
-                        f"Requested-period return: {format_ratio_as_percent(facts.period_return_ratio)}.",
+                        "Requested-period return: "
+                        f"{format_ratio_as_percent(facts.period_return_ratio)}.",
                     )
                     if facts.period_return_ratio is not None
                     else (),
@@ -322,11 +262,18 @@ class ManualStrategyAgent:
                 risks.append(
                     f"{largest_position.fund_name} remains above the concentration watch line."
                 )
-        if facts.period_return_ratio is not None and facts.period_return_ratio < NEGATIVE_RETURN_RATIO:
+        if (
+            facts.period_return_ratio is not None
+            and facts.period_return_ratio < NEGATIVE_RETURN_RATIO
+        ):
             risks.append("Recent requested-period performance is negative.")
-        if facts.max_drawdown_ratio is not None and facts.max_drawdown_ratio < NEGATIVE_RETURN_RATIO:
+        if (
+            facts.max_drawdown_ratio is not None
+            and facts.max_drawdown_ratio < NEGATIVE_RETURN_RATIO
+        ):
             risks.append(
-                f"The review window includes a drawdown of {format_ratio_as_percent(facts.max_drawdown_ratio)}."
+                "The review window includes a drawdown of "
+                f"{format_ratio_as_percent(facts.max_drawdown_ratio)}."
             )
         if not risks:
             risks.append("No urgent strategy risk dominates the current deterministic fact set.")
@@ -343,8 +290,4 @@ __all__ = [
     "LOW_CONFIDENCE",
     "MEDIUM_CONFIDENCE",
     "ManualStrategyAgent",
-    "StrategyAction",
-    "StrategyAgent",
-    "StrategyDebateFacts",
-    "StrategyProposalOutput",
 ]

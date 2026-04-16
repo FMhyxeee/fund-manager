@@ -13,11 +13,10 @@ from sqlalchemy.orm import Session
 from fund_manager.agents.runtime import (
     ManualReviewAgent,
     ReviewAgent,
-    ReviewAgentOutput,
-    ReviewPositionFact,
-    WeeklyReviewFacts,
 )
+from fund_manager.core.ai_artifacts import ReviewAgentOutput
 from fund_manager.core.domain.metrics import PortfolioValuePoint
+from fund_manager.core.fact_packs import ReviewPositionFact, WeeklyReviewFacts
 from fund_manager.core.serialization import serialize_for_json
 from fund_manager.core.services import AnalyticsService, PortfolioService
 from fund_manager.reports import WeeklyReviewMarkdownExporter

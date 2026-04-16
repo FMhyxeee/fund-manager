@@ -5,15 +5,14 @@ from __future__ import annotations
 from datetime import date
 from decimal import Decimal
 
-from fund_manager.agents.runtime import (
+from fund_manager.agents.runtime import ManualJudgeAgent
+from fund_manager.core.ai_artifacts import (
     ChallengerOutput,
     JudgeOutput,
-    ManualJudgeAgent,
-    ReviewPositionFact,
     StrategyAction,
-    StrategyDebateFacts,
     StrategyProposalOutput,
 )
+from fund_manager.core.fact_packs import ReviewPositionFact, StrategyDebateFacts
 
 
 def test_manual_judge_agent_synthesizes_final_recommendation() -> None:
@@ -84,7 +83,10 @@ def build_strategy_output() -> StrategyProposalOutput:
         ),
         proposed_actions=(
             StrategyAction(
-                action="Prepare a manual concentration review for Alpha Fund before adding further exposure.",
+                action=(
+                    "Prepare a manual concentration review for Alpha Fund before adding "
+                    "further exposure."
+                ),
                 rationale="Alpha Fund remains above the concentration watch line.",
                 evidence_refs=("Top position weight: Alpha Fund at +53.73%.",),
                 priority="high",
@@ -99,13 +101,16 @@ def build_challenger_output() -> ChallengerOutput:
     return ChallengerOutput(
         summary="The proposal identifies the main issue but still needs lower certainty.",
         critique_points=(
-            "The stated confidence may be too strong relative to the limited evidence and should be defended more carefully.",
+            "The stated confidence may be too strong relative to the limited evidence and "
+            "should be defended more carefully.",
         ),
         evidence_gaps=(
-            "The current evidence does not include target allocation bands or a formal rebalance threshold.",
+            "The current evidence does not include target allocation bands or a formal "
+            "rebalance threshold.",
         ),
         counterarguments=(
-            "Maintaining a pure monitoring stance could be more defensible until another full review window confirms the trend.",
+            "Maintaining a pure monitoring stance could be more defensible until another "
+            "full review window confirms the trend.",
         ),
         confidence_level="medium",
     )

@@ -12,18 +12,19 @@ from sqlalchemy.orm import Session
 
 from fund_manager.agents.runtime import (
     ChallengerAgent,
-    ChallengerOutput,
     JudgeAgent,
-    JudgeOutput,
     ManualChallengerAgent,
     ManualJudgeAgent,
     ManualStrategyAgent,
-    ReviewPositionFact,
     StrategyAgent,
-    StrategyDebateFacts,
+)
+from fund_manager.core.ai_artifacts import (
+    ChallengerOutput,
+    JudgeOutput,
     StrategyProposalOutput,
 )
 from fund_manager.core.domain.metrics import PortfolioValuePoint
+from fund_manager.core.fact_packs import ReviewPositionFact, StrategyDebateFacts
 from fund_manager.core.serialization import serialize_for_json
 from fund_manager.core.services import AnalyticsService, PortfolioService
 from fund_manager.storage.repo import (

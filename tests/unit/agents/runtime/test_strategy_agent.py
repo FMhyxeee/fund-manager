@@ -5,11 +5,8 @@ from __future__ import annotations
 from datetime import date
 from decimal import Decimal
 
-from fund_manager.agents.runtime import (
-    ManualStrategyAgent,
-    ReviewPositionFact,
-    StrategyDebateFacts,
-)
+from fund_manager.agents.runtime import ManualStrategyAgent
+from fund_manager.core.fact_packs import ReviewPositionFact, StrategyDebateFacts
 
 
 def test_manual_strategy_agent_returns_evidence_backed_actions() -> None:

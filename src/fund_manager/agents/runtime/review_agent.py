@@ -1,96 +1,20 @@
-"""ReviewAgent runtime contracts and the first manual implementation."""
+"""Manual ReviewAgent implementation."""
 
 from __future__ import annotations
 
-from dataclasses import dataclass
-from datetime import date
 from decimal import Decimal
-from pathlib import Path
-from typing import Protocol
+
+from fund_manager.agents.runtime.shared import (
+    PromptDefinition,
+    format_money,
+    format_ratio_as_percent,
+    load_prompt_definition,
+)
+from fund_manager.core.ai_artifacts import ReviewAgentOutput
+from fund_manager.core.fact_packs import ReviewPositionFact, WeeklyReviewFacts
 
 HIGH_CONCENTRATION_RATIO = Decimal("0.400000")
 SEVERE_DRAWDOWN_RATIO = Decimal("-0.050000")
-
-
-@dataclass(frozen=True)
-class PromptDefinition:
-    """Loaded prompt text plus its traceable file reference."""
-
-    name: str
-    path: Path
-    content: str
-
-
-@dataclass(frozen=True)
-class ReviewPositionFact:
-    """Bounded position-level facts prepared by the workflow coordinator."""
-
-    fund_code: str
-    fund_name: str
-    units: Decimal
-    current_value_amount: Decimal | None
-    weight_ratio: Decimal | None
-    unrealized_pnl_amount: Decimal | None
-    missing_nav: bool
-
-
-@dataclass(frozen=True)
-class WeeklyReviewFacts:
-    """Structured facts sent to ReviewAgent for one weekly review run."""
-
-    portfolio_id: int
-    portfolio_code: str
-    portfolio_name: str
-    base_currency_code: str
-    period_start: date
-    period_end: date
-    latest_valuation_date: date | None
-    valuation_point_count: int
-    position_count: int
-    total_cost_amount: Decimal
-    total_market_value_amount: Decimal | None
-    unrealized_pnl_amount: Decimal | None
-    daily_return_ratio: Decimal | None
-    period_return_ratio: Decimal | None
-    monthly_return_ratio: Decimal | None
-    max_drawdown_ratio: Decimal | None
-    missing_nav_fund_codes: tuple[str, ...]
-    top_weight_positions: tuple[ReviewPositionFact, ...]
-    top_gainers: tuple[ReviewPositionFact, ...]
-    top_laggards: tuple[ReviewPositionFact, ...]
-    accounting_assumptions_note: str
-
-
-@dataclass(frozen=True)
-class ReviewAgentOutput:
-    """Structured weekly review analysis produced by ReviewAgent."""
-
-    summary: str
-    fact_statements: tuple[str, ...]
-    interpretation_notes: tuple[str, ...]
-    key_drivers: tuple[str, ...]
-    risks_and_concerns: tuple[str, ...]
-    recommendation_notes: tuple[str, ...]
-    open_questions: tuple[str, ...]
-
-
-class ReviewAgent(Protocol):
-    """Runtime contract for a bounded weekly review agent."""
-
-    @property
-    def agent_name(self) -> str:
-        """Human-readable logical agent name."""
-
-    @property
-    def model_name(self) -> str | None:
-        """Concrete runtime identifier when available."""
-
-    @property
-    def prompt(self) -> PromptDefinition:
-        """Prompt definition used by the runtime."""
-
-    def review(self, facts: WeeklyReviewFacts) -> ReviewAgentOutput:
-        """Produce a structured weekly review from prepared facts only."""
 
 
 class ManualReviewAgent:
@@ -397,37 +321,6 @@ class ManualReviewAgent:
         if position.weight_ratio is None:
             return f"{position.fund_name} (weight unavailable)"
         return f"{position.fund_name} ({format_ratio_as_percent(position.weight_ratio)})"
-
-
-def load_prompt_definition(prompt_name: str) -> PromptDefinition:
-    """Load an agent prompt from the dedicated prompts directory."""
-    prompt_path = Path(__file__).resolve().parents[1] / "prompts" / prompt_name
-    return PromptDefinition(
-        name=prompt_name,
-        path=prompt_path,
-        content=prompt_path.read_text(encoding="utf-8"),
-    )
-
-
-def format_money(value: Decimal) -> str:
-    """Format money values for operator-facing agent output."""
-    return f"{value:,.4f}"
-
-
-def format_ratio_as_percent(value: Decimal) -> str:
-    """Format ratio values as signed percentages."""
-    percentage = value * Decimal("100")
-    return f"{percentage:+.2f}%"
-
-
 __all__ = [
     "ManualReviewAgent",
-    "PromptDefinition",
-    "ReviewAgent",
-    "ReviewAgentOutput",
-    "ReviewPositionFact",
-    "WeeklyReviewFacts",
-    "format_money",
-    "format_ratio_as_percent",
-    "load_prompt_definition",
 ]

@@ -10,7 +10,8 @@ from typing import Any
 
 from jinja2 import Environment, FileSystemLoader, select_autoescape
 
-from fund_manager.agents.runtime import ReviewAgentOutput, WeeklyReviewFacts
+from fund_manager.core.ai_artifacts import ReviewAgentOutput
+from fund_manager.core.fact_packs import WeeklyReviewFacts
 
 
 @dataclass(frozen=True)

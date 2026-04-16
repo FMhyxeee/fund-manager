@@ -9,12 +9,10 @@ import pytest
 
 from fund_manager.agents.runtime import (
     ManualChallengerAgent,
-    ReviewPositionFact,
-    StrategyAction,
-    StrategyDebateFacts,
-    StrategyProposalOutput,
     validate_critiques_distinct_from_proposal,
 )
+from fund_manager.core.ai_artifacts import StrategyAction, StrategyProposalOutput
+from fund_manager.core.fact_packs import ReviewPositionFact, StrategyDebateFacts
 
 
 def test_manual_challenger_agent_critiques_instead_of_restating() -> None:
@@ -42,7 +40,8 @@ def test_validate_critiques_distinct_from_proposal_rejects_restatement() -> None
         validate_critiques_distinct_from_proposal(
             proposal,
             (
-                "Prepare a manual concentration review for Alpha Fund before adding further exposure.",
+                "Prepare a manual concentration review for Alpha Fund before adding "
+                "further exposure.",
             ),
         )
 
@@ -192,7 +191,10 @@ def build_strategy_output(
         ),
         proposed_actions=(
             StrategyAction(
-                action="Prepare a manual concentration review for Alpha Fund before adding further exposure.",
+                action=(
+                    "Prepare a manual concentration review for Alpha Fund before adding "
+                    "further exposure."
+                ),
                 rationale="Alpha Fund remains above the concentration watch line.",
                 evidence_refs=("Top position weight: Alpha Fund at +53.73%.",),
                 priority="high",

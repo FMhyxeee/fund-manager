@@ -1,43 +1,38 @@
 """Runtime bridge modules for agent orchestration."""
 
 from fund_manager.agents.runtime.challenger_agent import (
-    ChallengerAgent,
-    ChallengerOutput,
     ManualChallengerAgent,
     validate_critiques_distinct_from_proposal,
 )
-from fund_manager.agents.runtime.judge_agent import (
+from fund_manager.agents.runtime.contracts import (
+    ChallengerAgent,
     JudgeAgent,
-    JudgeOutput,
+    ReviewAgent,
+    StrategyAgent,
+)
+from fund_manager.agents.runtime.judge_agent import (
     LOW_CONFIDENCE_SCORE,
     MEDIUM_CONFIDENCE_SCORE,
     ManualJudgeAgent,
 )
-from fund_manager.agents.runtime.review_agent import (
-    ManualReviewAgent,
+from fund_manager.agents.runtime.review_agent import ManualReviewAgent
+from fund_manager.agents.runtime.shared import (
     PromptDefinition,
-    ReviewAgent,
-    ReviewAgentOutput,
-    ReviewPositionFact,
-    WeeklyReviewFacts,
+    format_money,
+    format_ratio_as_percent,
+    load_prompt_definition,
 )
 from fund_manager.agents.runtime.strategy_agent import (
     HIGH_CONCENTRATION_RATIO,
     LOW_CONFIDENCE,
     MEDIUM_CONFIDENCE,
     ManualStrategyAgent,
-    StrategyAction,
-    StrategyAgent,
-    StrategyDebateFacts,
-    StrategyProposalOutput,
 )
 
 __all__ = [
     "ChallengerAgent",
-    "ChallengerOutput",
     "HIGH_CONCENTRATION_RATIO",
     "JudgeAgent",
-    "JudgeOutput",
     "LOW_CONFIDENCE",
     "LOW_CONFIDENCE_SCORE",
     "ManualReviewAgent",
@@ -48,12 +43,9 @@ __all__ = [
     "MEDIUM_CONFIDENCE_SCORE",
     "PromptDefinition",
     "ReviewAgent",
-    "ReviewAgentOutput",
-    "ReviewPositionFact",
-    "StrategyAction",
     "StrategyAgent",
-    "StrategyDebateFacts",
-    "StrategyProposalOutput",
-    "WeeklyReviewFacts",
+    "format_money",
+    "format_ratio_as_percent",
+    "load_prompt_definition",
     "validate_critiques_distinct_from_proposal",
 ]

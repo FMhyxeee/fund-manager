@@ -11,21 +11,18 @@ import pytest
 from sqlalchemy import create_engine, select
 from sqlalchemy.orm import Session, sessionmaker
 
-from fund_manager.agents.runtime.challenger_agent import (
+from fund_manager.agents.runtime import PromptDefinition
+from fund_manager.agents.runtime.challenger_agent import ManualChallengerAgent
+from fund_manager.agents.runtime.judge_agent import ManualJudgeAgent
+from fund_manager.agents.runtime.strategy_agent import ManualStrategyAgent
+from fund_manager.agents.workflows import StrategyDebateWorkflow
+from fund_manager.core.ai_artifacts import (
     ChallengerOutput,
-    ManualChallengerAgent,
-)
-from fund_manager.agents.runtime.judge_agent import (
     JudgeOutput,
-    ManualJudgeAgent,
-)
-from fund_manager.agents.runtime.review_agent import PromptDefinition
-from fund_manager.agents.runtime.strategy_agent import (
-    ManualStrategyAgent,
-    StrategyDebateFacts,
     StrategyProposalOutput,
 )
-from fund_manager.agents.workflows import StrategyDebateWorkflow
+from fund_manager.core.fact_packs import StrategyDebateFacts
+from fund_manager.core.services import PortfolioNotFoundError
 from fund_manager.storage.models import (
     AgentDebateLog,
     Base,
@@ -135,7 +132,7 @@ def test_strategy_debate_rejects_invalid_period_range(session: Session) -> None:
 def test_strategy_debate_records_failure_event_for_missing_portfolio(session: Session) -> None:
     workflow = StrategyDebateWorkflow(session)
 
-    with pytest.raises(Exception):
+    with pytest.raises(PortfolioNotFoundError):
         workflow.run(
             portfolio_id=99999,
             period_start=date(2026, 3, 8),
@@ -387,7 +384,7 @@ def test_strategy_debate_proposal_contains_debate_evidence_json(session: Session
     portfolio = seed_portfolio_with_valuation_history(session)
     workflow = StrategyDebateWorkflow(session)
 
-    result = workflow.run(
+    workflow.run(
         portfolio_id=portfolio.id,
         period_start=date(2026, 3, 8),
         period_end=date(2026, 3, 15),

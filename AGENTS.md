@@ -1,79 +1,173 @@
 # AGENTS.md
 
-## 1. Repository Purpose
+## 1. Repository Definition
 
-This repository implements a **personal, self-hosted, agent-driven fund portfolio review and strategy assistant**.
+This repository implements a **personal, self-hosted investment domain kernel** for fund portfolio tracking, review, and policy-backed decision support.
 
-Primary goals:
-- Track and explain personal fund holdings and transactions.
-- Compute authoritative portfolio metrics using deterministic code.
-- Generate deterministic policy-backed daily decision runs.
-- Capture manual execution feedback from the operator.
-- Reconcile imported transactions back to prior decision feedback for auditability.
-- Run scheduled review workflows (daily / weekly / monthly).
-- Support multi-agent discussion for strategy analysis.
-- Persist reports, decision runs, manual feedback, strategy proposals, and debate logs for long-term review.
+`fund-manager` is the system that owns:
+- canonical portfolio facts
+- deterministic accounting and policy evaluation
+- append-only audit artifacts
+- manual execution feedback and reconciliation
+- stable typed interfaces for other runtimes and agents
+
+AI is **not** the center of this repository.
+
+AI is a **replaceable analysis layer** that may consume structured facts from `fund-manager` and produce explanations, critiques, summaries, and strategy narratives. The repository must remain correct even when no LLM is available.
 
 This system is a **decision-support system with a manual execution loop**, not an auto-trading system.
 
 ---
 
-## 2. Non-Goals
+## 2. System Model
 
-Do **not** implement or assume the following in v1 unless explicitly requested:
-- Automatic fund buying or selling.
-- Broker / custodian / exchange integrations for order submission.
-- Direct integration with trading permissions.
-- Real-money execution pipelines or background order dispatch.
-- Hidden LLM-only accounting logic.
-- Multi-tenant SaaS behaviors.
-- Public API hardening for external customers.
+Everything in the repository should be classified into one of the following artifact classes.
+
+### 2.1 Canonical Facts
+
+Owned by `fund-manager`.
+
+Examples:
+- `portfolio`
+- `fund_master`
+- `transaction`
+- `position_lot`
+- `nav_snapshot`
+- `portfolio_snapshot`
+- deterministic portfolio metrics
+
+Rules:
+- must be computed or normalized by deterministic code
+- must never depend on prompt-only logic
+- may be corrected only through explicit repair workflows
+
+### 2.2 Deterministic Decisions
+
+Owned by `fund-manager`.
+
+Examples:
+- policy evaluation results
+- band-breach detection
+- suggested rebalance amount
+- `decision_run`
+
+Rules:
+- generated from canonical facts plus deterministic policy rules
+- append-only once persisted
+- may be explained by AI, but not replaced by AI
+
+### 2.3 Research Signals
+
+Owned by `fund-manager` when they are implemented as deterministic read models.
+
+Examples:
+- watchlist candidates
+- style leaders
+- candidate-vs-portfolio fit analysis
+- future market radar or signal snapshots
+
+Rules:
+- not part of canonical accounting truth
+- not equivalent to policy truth
+- not equivalent to execution instructions
+- must remain explainable and reproducible from structured inputs
+
+### 2.4 AI Narratives
+
+Produced by AI runtimes, optionally persisted by `fund-manager` as append-only artifacts.
+
+Examples:
+- weekly review narrative
+- strategy proposal
+- challenge output
+- judge output
+- markdown reports generated from structured facts
+
+Rules:
+- must be clearly separated from canonical facts
+- must identify facts vs interpretation vs recommendation vs uncertainty
+- must never be treated as accounting truth
+
+### 2.5 Human Execution Feedback
+
+Owned by `fund-manager`.
+
+Examples:
+- `decision_feedback`
+- `decision_transaction_link`
+
+Rules:
+- must reference concrete deterministic actions
+- must be append-only
+- actual execution is decided by the operator, not inferred from AI output
 
 ---
 
-## 3. Core Product Rules
+## 3. Non-Goals
 
-1. **Deterministic accounting first**
-   - All authoritative metrics must come from deterministic Python code.
-   - LLMs may explain and challenge results, but must not define canonical accounting values.
+Do **not** implement or assume the following in v1 unless explicitly requested:
+- automatic fund buying or selling
+- broker / custodian / exchange integrations for order submission
+- direct integration with trading permissions
+- real-money execution pipelines or background order dispatch
+- hidden LLM-only accounting logic
+- AI-defined canonical metrics
+- multi-tenant SaaS behaviors
+- public API hardening for external customers
 
-2. **Append-only historical truth**
-   - Historical snapshots, reports, and strategy proposals are append-only.
-   - Never overwrite prior investment conclusions unless the user explicitly requests a correction workflow.
+---
 
-3. **Evidence-backed strategy outputs**
-   - Every strategy conclusion must reference structured data produced by tools or services.
-   - Never produce unsupported “investment advice” language.
+## 4. Core Product Rules
 
-4. **Manual execution is first-class**
+1. **Deterministic truth first**
+   - All authoritative portfolio facts and decisions must come from deterministic Python code.
+   - LLMs may explain or challenge results, but must not define canonical values.
+
+2. **Stable without AI**
+   - Core domain flows must remain correct when no LLM is configured.
+   - Import, sync, snapshot, policy evaluation, decision generation, feedback recording, and reconciliation must all work without AI.
+
+3. **Append-only historical truth**
+   - Historical snapshots, reports, decisions, strategy proposals, and feedback records are append-only.
+   - Never silently overwrite prior conclusions.
+
+4. **Truth, signal, and narrative must stay separate**
+   - Canonical facts are not research signals.
+   - Research signals are not deterministic decisions.
+   - AI narratives are not canonical facts.
+
+5. **Manual execution is first-class**
    - The human operator decides whether a suggested action was executed, skipped, or deferred.
-   - The system may persist manual feedback and reconcile later imported transactions back to that feedback.
-   - The system must not infer that a trade happened only because an agent recommended it.
+   - The system must not infer that a trade happened only because a decision or AI proposal existed.
 
-5. **No direct agent mutation of core accounting tables**
-   - Agents must call domain tools.
-   - Agents must not directly write SQL or mutate accounting records without going through controlled services.
+6. **No direct agent mutation of core accounting tables**
+   - Agents must call domain tools or APIs.
+   - Agents must not directly write SQL or mutate accounting records without controlled services.
 
-6. **Personal deployment assumption**
+7. **Personal deployment assumption**
    - The system is built for one trusted operator.
    - Optimize for clarity, maintainability, and auditability over enterprise complexity.
 
-### Boundary with OpenClaw
+---
+
+## 5. Boundary with OpenClaw
 
 `fund-manager` owns the investment-domain source of truth.
 
 `fund-manager` is responsible for:
 - canonical portfolio data and persistence
 - deterministic accounting and policy evaluation
-- append-only audit artifacts such as snapshots, reports, decisions, feedback, and reconciliation links
+- append-only audit artifacts such as snapshots, decisions, reports, feedback, and reconciliation links
+- deterministic research signals such as watchlist, candidate fit, and style-leader outputs
 - fund-domain ingestion paths such as AKShare sync, holdings import, transaction import, and NAV refresh
-- typed domain interfaces exposed through API, CLI, MCP, or agent tools
+- typed domain interfaces exposed through API, CLI, MCP, or internal tools
 
 `OpenClaw` is responsible for:
 - agent runtime, model/profile selection, auth context, and tool permissions
+- prompt orchestration and sub-agent routing
 - channel interaction such as chat replies, Feishu delivery, inbox-style summaries, and notifications
+- external search and other cross-project tools that are not fund-specific
 - orchestration concerns such as heartbeat checks, cron triggers, retry policy, and “who should be told”
-- cross-project tools that are not fund-specific, such as web search, mail, calendar, shell, and GitHub workflows
 
 Coordination rule:
 - `OpenClaw` may call `fund-manager`, schedule `fund-manager`, or summarize `fund-manager` outputs.
@@ -82,53 +176,62 @@ Coordination rule:
 
 Practical split:
 - “What is the portfolio state?” belongs in `fund-manager`.
-- “When should we run the workflow and how should we present it?” belongs in `OpenClaw`.
-- “Should this imported transaction be linked to a prior decision?” belongs in `fund-manager`.
+- “Which policy rules fired today?” belongs in `fund-manager`.
+- “What are the current watchlist or style-leader signals?” belongs in `fund-manager`.
+- “How should this be explained to the human?” belongs in `OpenClaw` or an AI runtime adapter.
+- “Which model should be used for the weekly review?” belongs in `OpenClaw`.
 - “Should the human receive a Feishu summary right now?” belongs in `OpenClaw`.
 
 For an action-level ownership checklist, see [`doc/06-边界与接口清单.md`](./doc/06-%E8%BE%B9%E7%95%8C%E4%B8%8E%E6%8E%A5%E5%8F%A3%E6%B8%85%E5%8D%95.md).
 
 ---
 
-## 4. Architecture Guardrails
+## 6. Architecture Guardrails
 
-### 4.1 Layering
+### 6.1 Layering
 
 Keep the repository layered:
-- `core/domain`: pure business entities and value logic.
-- `core/services`: deterministic business services.
-- `data_adapters`: external data acquisition and normalization.
-- `storage`: persistence models, migrations, repositories.
-- `agents/tools`: controlled tools exposed to agents.
-- `agents/workflows`: orchestration and loop logic.
-- `scheduler`: timed triggers and automation entrypoints.
-- `mcp`: optional read-oriented transport layer for external agent clients.
-- `apps/api`: external API surface.
+- `core/domain`: pure business entities and value logic
+- `core/services`: deterministic business services and decision logic
+- `core/watchlist` or future deterministic signal modules: research-signal read models
+- `core/fact_packs.py`: typed deterministic facts prepared for AI-facing workflows
+- `core/ai_artifacts.py`: typed AI artifacts persisted or transported separately from truth
+- `data_adapters`: external data acquisition and normalization
+- `storage`: persistence models, migrations, repositories
+- `agents/tools`: controlled tools exposed to workflows or external runtimes
+- `agents/workflows`: orchestration of domain services and persisted artifacts
+- `agents/runtime/contracts.py`: runtime-facing protocols only
+- `agents/runtime/shared.py`: prompt metadata loading and tiny shared formatting helpers
+- `agents/runtime/*_agent.py`: manual or lightweight adapter implementations only
+- `scheduler`: timed triggers and automation entrypoints
+- `mcp`: optional transport layer for external agent clients
+- `apps/api`: external API surface
 
-### 4.2 Dependency direction
+### 6.2 Dependency direction
 
 Allowed dependency direction:
-- `apps/api` -> `core/services`, `storage/repo`, `agents/workflows`
-- `mcp` -> `agents/tools`, `core/services`, `storage/repo`
-- `agents/workflows` -> `agents/tools`, `core/services`, `storage/repo`
-- `agents/tools` -> `core/services`, `storage/repo`, `data_adapters`
+- `apps/api` -> `core/services`, `core/watchlist`, `storage/repo`, `agents/workflows`
+- `mcp` -> `agents/tools`, `core/services`, `core/watchlist`, `storage/repo`
+- `agents/workflows` -> `agents/tools`, `core/services`, `core/watchlist`, `storage/repo`
+- `agents/tools` -> `core/services`, `core/watchlist`, `storage/repo`, `data_adapters`
 - `data_adapters` -> external APIs only
 - `core/domain` -> no infrastructure dependencies
 
 Disallowed:
-- Domain logic depending on API frameworks.
-- Prompt text embedded inside core business services.
-- Data adapter logic mixed into accounting computation modules.
+- domain logic depending on API frameworks
+- prompt text embedded inside core deterministic services
+- data adapter logic mixed into accounting computation modules
+- AI-only inference defining canonical truth
+- runtime helper modules becoming hidden homes for canonical DTOs or persisted artifact schemas
 
-Decision evaluation, manual feedback recording, and transaction reconciliation belong in
-`core/services`, with persistence flowing through `storage/repo`.
+Decision evaluation, manual feedback recording, transaction reconciliation, and deterministic signal generation belong in Python services, with persistence flowing through `storage/repo`.
 
 ---
 
-## 5. Data Integrity Rules
+## 7. Data Integrity Rules
 
 1. Every schema change must include a migration.
-2. Every accounting logic change must include or update tests.
+2. Every accounting or deterministic decision logic change must include or update tests.
 3. Snapshot tables are append-only unless a repair command is explicitly designed.
 4. Imported external data must be normalized before persistence.
 5. Data source provenance should be stored when practical.
@@ -140,10 +243,12 @@ Decision evaluation, manual feedback recording, and transaction reconciliation b
 11. `decision_run`, `decision_feedback`, and `decision_transaction_link` are append-only audit artifacts. New state should be recorded as new rows, not by rewriting prior conclusions.
 12. `transaction` remains the authoritative trade ledger. Reconciliation should add link records, not mutate imported transactions to embed agent state.
 13. Manual feedback must reference a concrete deterministic action, preferably by `decision_run` plus `action_index`, rather than fuzzy natural-language matching.
+14. Research signals must not be written back into canonical accounting tables.
+15. AI-generated narratives must be persisted as their own artifacts, never as silent mutations to canonical fact tables.
 
 ---
 
-## 6. Authoritative Computation Policy
+## 8. Authoritative Computation Policy
 
 The following values must be computed in deterministic services only:
 - current market value
@@ -159,6 +264,7 @@ The following values must be computed in deterministic services only:
 - suggested rebalance amount
 - feedback-to-transaction reconciliation matches
 - transaction normalization results
+- deterministic watchlist scores and fit labels
 
 LLMs may:
 - summarize metrics
@@ -166,32 +272,96 @@ LLMs may:
 - explain likely drivers
 - challenge assumptions
 - organize next actions
+- produce review and strategy narratives from structured facts
 
 LLMs may not:
 - invent missing holdings
 - invent fund data
 - replace canonical metrics
+- redefine policy evaluation results
 - rewrite transaction history without an explicit repair workflow
+- turn research signals into canonical truth by prompt convention alone
 
 ---
 
-## 7. Agent Design Rules
+## 9. AI Design Rules
 
-### 7.1 Agent roles
+### 9.1 AI input contract
 
-The expected agent roles are:
-- `DataAgent`
+AI should receive structured **Fact Packs**, not raw database access and not hidden business rules.
+
+A Fact Pack should contain:
+- stable identifiers such as `run_id`, `portfolio_id`, `as_of_date`, and period bounds
+- deterministic facts and metrics only
+- provenance or source metadata when relevant
+- explicit notes about missing data, assumptions, and incompleteness
+
+Current code guidance:
+- weekly and strategy workflow inputs belong in `core/fact_packs.py`
+- do not redefine workflow input DTOs inside `agents/runtime/*`
+
+### 9.2 AI output contract
+
+AI outputs should be structured and typed before persistence.
+
+Every non-trivial AI artifact should distinguish:
+- facts used
+- interpretation
+- recommendation
+- counterarguments or alternatives
+- uncertainty / confidence
+
+Markdown may be generated for humans, but the canonical persisted AI artifact should have a structured payload behind it.
+
+Current code guidance:
+- review / strategy / challenge / judge outputs belong in `core/ai_artifacts.py`
+- do not treat runtime implementation modules as the owner of persisted artifact schemas
+
+### 9.3 AI workflow persistence rule
+
+When `fund-manager` persists AI outputs:
+- keep them append-only
+- store run metadata
+- store prompt or template references when available
+- store model name when available
+- store tool-call summaries when available
+
+### 9.4 AI replacement rule
+
+The repository must be able to:
+- swap models
+- swap providers
+- move orchestration into `OpenClaw`
+- disable AI entirely
+
+without rewriting deterministic accounting modules.
+
+---
+
+## 10. Agent Design Rules
+
+### 10.1 Expected roles
+
+Expected roles may include:
 - `ReviewAgent`
 - `StrategyAgent`
 - `ChallengerAgent`
 - `JudgeAgent`
 - optional `CoordinatorAgent`
 
-### 7.2 Agent behavior constraints
+The repository may keep lightweight in-repo manual agents for testing and deterministic scaffolding, but production-grade model routing belongs outside the domain kernel.
+
+Current code guidance:
+- protocols live in `agents/runtime/contracts.py`
+- prompt loading and shared runtime metadata live in `agents/runtime/shared.py`
+- manual implementations live in `agents/runtime/review_agent.py`, `strategy_agent.py`, `challenger_agent.py`, and `judge_agent.py`
+- these modules are adapters, not the home of canonical truth, fact DTOs, or persisted artifact DTOs
+
+### 10.2 Agent behavior constraints
 
 Each agent should:
 - use structured tools where possible
-- operate on a bounded context
+- operate on bounded context
 - return concise, structured outputs
 - distinguish facts vs interpretation vs recommendation
 
@@ -202,39 +372,36 @@ Each agent must avoid:
 - generating unsupported predictions stated as facts
 - duplicating data-fetch logic that should live in tools
 
-### 7.3 Debate rule
+### 10.3 Debate rule
 
 For weekly and monthly strategy workflows that produce a strategy proposal:
-- `StrategyAgent` must propose
-- `ChallengerAgent` must critique
-- `JudgeAgent` must finalize
+- `StrategyAgent` proposes
+- `ChallengerAgent` critiques
+- `JudgeAgent` finalizes
 
 No final strategy proposal should be saved without challenge review unless the user explicitly disables it.
 
-### 7.4 Daily deterministic decision stage
+### 10.4 Daily deterministic decision stage
 
-The daily decision stage is not a free-form agent recommendation pass.
+The daily decision stage is not a free-form AI recommendation pass.
 
 For this stage:
 - policy evaluation must come from deterministic services
 - the persisted artifact is `decision_run`
-- agents may explain, challenge, or summarize a deterministic decision, but should not replace it
+- agents may explain, challenge, or summarize a deterministic decision, but must not replace it
 - manual execution feedback, when present, must be stored separately from the original decision artifact
 
-### 7.5 Manual weekly review stage
+### 10.5 Weekly and monthly AI stages
 
-The first weekly review workflow may be implemented as a manual, single-agent review flow before multi-agent debate is added.
-
-For this stage:
-- `CoordinatorAgent` prepares context only from deterministic services and repositories
-- `ReviewAgent` receives structured facts only, not raw database access or hidden business rules
-- weekly review output should be rendered as markdown and stored in `review_report`
-- execution metadata should be saved for traceability, including run id, trigger source, prompt reference when available, and tool call summaries
-- this workflow must not persist a strategy proposal or imply that challenge review has already happened
+For review and strategy workflows:
+- a deterministic coordinator prepares structured facts
+- AI consumes the facts and returns typed artifacts
+- final persistence keeps facts and AI artifacts separate
+- these workflows must not silently mutate policy truth or accounting truth
 
 ---
 
-## 8. Tooling Rules for Agent Tools
+## 11. Tooling Rules for Agent Tools
 
 Agent tools should be:
 - typed
@@ -259,11 +426,12 @@ Application services used by tools or APIs should prefer explicit structured DTO
 Avoid tools that:
 - do too many unrelated actions
 - both compute and persist multiple entities without clear intent
-- return unstructured giant text blobs when structured JSON-like output is more appropriate
+- return unstructured giant text blobs when structured output is more appropriate
+- hide side effects behind read-sounding names
 
 ---
 
-## 9. Prompt / Markdown Conventions
+## 12. Prompt / Markdown Conventions
 
 Prompt files should live under `agents/prompts/`.
 
@@ -271,14 +439,14 @@ Prompt files should:
 - define role
 - define allowed tools
 - define expected output structure
-- explicitly require separation of fact / interpretation / recommendation
+- explicitly require separation of fact / interpretation / recommendation / uncertainty
 - avoid hidden business logic that belongs in Python code
 
 Do not place sensitive credentials in prompt files.
 
 ---
 
-## 10. Coding Standards
+## 13. Coding Standards
 
 ### Python
 - Prefer Python 3.11+ features when stable and appropriate.
@@ -300,7 +468,7 @@ Do not place sensitive credentials in prompt files.
 
 ---
 
-## 11. Testing Policy
+## 14. Testing Policy
 
 ### Mandatory unit tests
 - transaction normalization
@@ -313,6 +481,7 @@ Do not place sensitive credentials in prompt files.
 - deterministic policy decision evaluation
 - manual decision feedback recording
 - feedback-to-transaction reconciliation matching
+- deterministic signal outputs such as watchlist scoring and fit-label rules when changed
 
 ### Mandatory integration tests
 - holdings import pipeline
@@ -327,12 +496,13 @@ Do not place sensitive credentials in prompt files.
 - malformed CSV import
 - missing NAV data fallback handling
 - manual feedback API / tool entrypoints
+- signal layer APIs and tool surfaces
 
 When changing core financial logic, update tests first or together with the change.
 
 ---
 
-## 12. Observability and Logging
+## 15. Observability and Logging
 
 Every workflow run should be traceable.
 
@@ -346,13 +516,18 @@ Minimum logging expectations:
 - persistence outcomes
 - failure reason when any step fails
 
+For AI-backed artifacts, log when available:
+- model or provider name
+- prompt/template reference
+- fact pack reference or summary
+
 Important:
-- Logging must not expose secrets.
-- Strategy and report artifacts should be persistable independently of raw trace logs.
+- logging must not expose secrets
+- strategy and report artifacts should be persistable independently of raw trace logs
 
 ---
 
-## 13. Configuration and Secrets
+## 16. Configuration and Secrets
 
 - Store secrets in environment variables or local config files excluded from version control.
 - Commit `.env.example`, never commit `.env` with real credentials.
@@ -361,24 +536,25 @@ Important:
 
 ---
 
-## 14. OpenClaw / Runtime Assumptions
+## 17. OpenClaw / Runtime Assumptions
 
 This repository should assume:
 - personal self-hosted runtime
-- OpenClaw or equivalent orchestration runtime
-- OpenAI Codex OAuth as a preferred development/runtime login mode where supported
-- optional secondary providers such as GLM for debate roles
+- `OpenClaw` or equivalent orchestration runtime
+- optional external model providers
+- optional provider-specific model routing outside the domain kernel
 
 Runtime-specific code should be isolated behind adapter or bridge modules.
 
 ---
 
-## 15. Repository Tasks Codex Can Safely Help With
+## 18. Repository Tasks Codex Can Safely Help With
 
 Codex is encouraged to:
 - scaffold modules
 - create migrations
 - implement deterministic services
+- implement signal read models
 - implement adapters
 - write tests
 - refactor for layering
@@ -390,13 +566,14 @@ Codex should be cautious with:
 - modifying financial formulas
 - altering persisted schema semantics
 - changing transaction normalization rules
+- changing policy evaluation semantics
 - changing any tool used in strategy persistence
 
 For these changes, Codex should prefer small, test-backed edits.
 
 ---
 
-## 16. Change Checklist
+## 19. Change Checklist
 
 Before completing a change, verify:
 - Does it preserve deterministic accounting truth?
@@ -405,24 +582,28 @@ Before completing a change, verify:
 - Does it preserve append-only history assumptions?
 - Does it keep agent permissions constrained?
 - Does it avoid implying auto-trading behavior?
+- Does it clearly separate truth, signal, narrative, and human feedback?
+- Would the core flow still work if AI were disabled?
 
 ---
 
-## 17. Preferred Build Order
+## 20. Preferred Build Order
 
 When the repository is still early-stage, prefer implementing in this order:
 1. schema and models
 2. import and normalization
-3. deterministic metrics
+3. deterministic metrics and policy evaluation
 4. portfolio snapshot generation
-5. single-agent weekly review
-6. multi-agent debate workflow
-7. scheduler and automation
-8. dashboard and polish
+5. manual execution loop
+6. deterministic signal layer
+7. single-agent weekly review
+8. multi-agent debate workflow
+9. scheduler and automation
+10. dashboard and polish
 
 ---
 
-## 18. Output Style for Generated Reports
+## 21. Output Style for Generated Reports
 
 Reports should generally use this structure:
 1. summary
@@ -443,7 +624,7 @@ Strategy proposals should generally use:
 
 ---
 
-## 19. Hard Constraints
+## 22. Hard Constraints
 
 Never implement in v1 unless explicitly requested:
 - automatic order placement
@@ -451,15 +632,17 @@ Never implement in v1 unless explicitly requested:
 - unauthorized access to private platforms
 - unsupported claims of guaranteed returns
 - hidden mutation of authoritative accounting records by agents
+- prompt-only canonical accounting
 
 ---
 
-## 20. If Requirements Conflict
+## 23. If Requirements Conflict
 
 Prioritize in this order:
 1. user explicit instruction
 2. deterministic accounting correctness
 3. data integrity and auditability
 4. architecture clarity
-5. agent convenience
-6. UI polish
+5. stable separation of truth / signal / narrative
+6. agent convenience
+7. UI polish

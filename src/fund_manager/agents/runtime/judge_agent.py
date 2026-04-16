@@ -1,61 +1,23 @@
-"""JudgeAgent runtime contracts and the first manual implementation."""
+"""Manual JudgeAgent implementation."""
 
 from __future__ import annotations
 
-from dataclasses import dataclass
 from decimal import Decimal
-from typing import Protocol
 
-from fund_manager.agents.runtime.challenger_agent import ChallengerOutput
-from fund_manager.agents.runtime.review_agent import PromptDefinition, load_prompt_definition
+from fund_manager.agents.runtime.shared import PromptDefinition, load_prompt_definition
 from fund_manager.agents.runtime.strategy_agent import (
     LOW_CONFIDENCE,
     MEDIUM_CONFIDENCE,
-    StrategyAction,
-    StrategyDebateFacts,
+)
+from fund_manager.core.ai_artifacts import (
+    ChallengerOutput,
+    JudgeOutput,
     StrategyProposalOutput,
 )
+from fund_manager.core.fact_packs import StrategyDebateFacts
 
 LOW_CONFIDENCE_SCORE = Decimal("0.3500")
 MEDIUM_CONFIDENCE_SCORE = Decimal("0.6500")
-
-
-@dataclass(frozen=True)
-class JudgeOutput:
-    """Structured final recommendation produced by JudgeAgent."""
-
-    summary: str
-    thesis: str
-    evidence: tuple[str, ...]
-    proposed_actions: tuple[StrategyAction, ...]
-    counterarguments: tuple[str, ...]
-    final_judgment: str
-    confidence_level: str
-    confidence_score: Decimal
-
-
-class JudgeAgent(Protocol):
-    """Runtime contract for a bounded judge agent."""
-
-    @property
-    def agent_name(self) -> str:
-        """Human-readable logical agent name."""
-
-    @property
-    def model_name(self) -> str | None:
-        """Concrete runtime identifier when available."""
-
-    @property
-    def prompt(self) -> PromptDefinition:
-        """Prompt definition used by the runtime."""
-
-    def judge(
-        self,
-        facts: StrategyDebateFacts,
-        proposal: StrategyProposalOutput,
-        challenge: ChallengerOutput,
-    ) -> JudgeOutput:
-        """Synthesize the proposal and critique into a final recommendation."""
 
 
 class ManualJudgeAgent:
@@ -97,7 +59,9 @@ class ManualJudgeAgent:
             if facts.missing_nav_fund_codes
             else "monitor_with_concentration_review"
         )
-        counterarguments = tuple(dict.fromkeys(challenge.counterarguments + challenge.critique_points))
+        counterarguments = tuple(
+            dict.fromkeys(challenge.counterarguments + challenge.critique_points)
+        )
 
         return JudgeOutput(
             summary=self._build_summary(facts, challenge, final_judgment),
@@ -145,8 +109,6 @@ class ManualJudgeAgent:
 
 
 __all__ = [
-    "JudgeAgent",
-    "JudgeOutput",
     "LOW_CONFIDENCE_SCORE",
     "MEDIUM_CONFIDENCE_SCORE",
     "ManualJudgeAgent",
