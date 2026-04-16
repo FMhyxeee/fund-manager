@@ -8,9 +8,12 @@ from decimal import Decimal
 from pathlib import Path
 
 import pytest
-from sqlalchemy import create_engine
+from sqlalchemy import create_engine, func, select
 from sqlalchemy.orm import Session, sessionmaker
 
+from fund_manager.core.services.transaction_lot_sync_service import (
+    TRANSACTION_AGGREGATE_LOT_PREFIX,
+)
 from fund_manager.mcp.service import FundManagerMCPService, ModelAllocation
 from fund_manager.storage.models import (
     Base,
@@ -224,6 +227,107 @@ def test_mcp_service_watchlist_reads(session: Session) -> None:
     assert "006265" not in all_codes
     assert fit["fit_label"] == "high_beta_duplicate"
     assert leaders["leaders"]["healthcare"][0]["fund_code"] in {"010685", "003095"}
+
+
+def test_mcp_service_queries_and_appends_transactions(session: Session) -> None:
+    portfolio, alpha_fund, _ = seed_portfolio_with_history(session)
+    decision_run = DecisionRun(
+        portfolio_id=portfolio.id,
+        decision_date=date(2026, 3, 15),
+        summary="Add Alpha Fund.",
+        final_decision="rebalance_required",
+        trigger_source="mcp_test",
+        actions_json=[
+            {
+                "action_type": "add",
+                "fund_id": alpha_fund.id,
+                "fund_code": alpha_fund.fund_code,
+                "fund_name": alpha_fund.fund_name,
+            }
+        ],
+        decision_summary_json={"final_decision": "rebalance_required"},
+        created_by_agent="DecisionService",
+    )
+    session.add(decision_run)
+    session.flush()
+    feedback = DecisionFeedback(
+        decision_run_id=decision_run.id,
+        portfolio_id=portfolio.id,
+        fund_id=alpha_fund.id,
+        action_index=0,
+        action_type="add",
+        feedback_status=DecisionFeedbackStatus.EXECUTED,
+        feedback_date=date(2026, 3, 15),
+        note="operator confirmed execution",
+        created_by="openclaw",
+    )
+    session.add(feedback)
+    session.commit()
+
+    service = FundManagerMCPService(session)
+
+    append_result = service.append_transaction(
+        portfolio_name="Main",
+        fund_code="000001",
+        trade_date=date(2026, 3, 16),
+        trade_type="buy",
+        units=Decimal("2"),
+        gross_amount=Decimal("3.40"),
+        fee_amount=Decimal("0"),
+        nav_per_unit=Decimal("1.70"),
+        external_reference="manual-001",
+        source_reference="openclaw-chat",
+        note="manual execution recorded by OpenClaw",
+    )
+    transaction_id = append_result["transaction"]["transaction_id"]
+    listed_result = service.list_transactions(
+        portfolio_name="Main",
+        fund_code="000001",
+        trade_type="buy",
+        start_date=date(2026, 3, 16),
+        end_date=date(2026, 3, 16),
+    )
+    get_result = service.get_transaction(transaction_id=transaction_id)
+
+    assert append_result["transaction"]["source_name"] == "openclaw_mcp"
+    assert append_result["transaction"]["units"] == "2.000000"
+    assert append_result["transaction"]["gross_amount"] == "3.4000"
+    assert append_result["linked_transaction_ids"] == [transaction_id]
+    assert append_result["transaction"]["linked_feedback_ids"] == [feedback.id]
+    assert append_result["transaction"]["linked_decision_run_ids"] == [decision_run.id]
+    assert listed_result["transactions"][0]["transaction_id"] == transaction_id
+    assert get_result["transaction"]["external_reference"] == "manual-001"
+
+    transaction_lot = session.execute(
+        select(PositionLot)
+        .where(PositionLot.lot_key == f"{TRANSACTION_AGGREGATE_LOT_PREFIX}000001")
+        .order_by(PositionLot.id.desc())
+        .limit(1)
+    ).scalar_one()
+    assert transaction_lot.remaining_units == Decimal("2.000000")
+    assert transaction_lot.total_cost_amount == Decimal("3.4000")
+
+
+def test_mcp_service_append_transaction_rolls_back_on_validation_error(
+    session: Session,
+) -> None:
+    seed_portfolio_with_history(session)
+    service = FundManagerMCPService(session)
+
+    with pytest.raises(ValueError, match="provide fund_name"):
+        service.append_transaction(
+            portfolio_name="Main",
+            fund_code="999999",
+            trade_date=date(2026, 3, 16),
+            trade_type="buy",
+            units=Decimal("1"),
+            gross_amount=Decimal("1"),
+        )
+
+    assert session.scalar(select(func.count()).select_from(TransactionRecord)) == 0
+    assert session.scalar(
+        select(func.count()).select_from(FundMaster).where(FundMaster.fund_code == "999999")
+    ) == 0
 
 
 def seed_portfolio_with_history(session: Session) -> tuple[Portfolio, FundMaster, FundMaster]:

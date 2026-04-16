@@ -53,6 +53,11 @@ from fund_manager.core.services.transaction_lot_sync_service import (
     TransactionLotSyncResult,
     TransactionLotSyncService,
 )
+from fund_manager.core.services.transaction_service import (
+    TransactionAppendResult,
+    TransactionRecordDTO,
+    TransactionService,
+)
 
 __all__ = [
     "AnalyticsService",
@@ -86,8 +91,11 @@ __all__ = [
     "PositionBreakdownReadResult",
     "PositionMetrics",
     "TRANSACTION_AGGREGATE_LOT_PREFIX",
+    "TransactionAppendResult",
     "TransactionLotSyncResult",
     "TransactionLotSyncService",
+    "TransactionRecordDTO",
+    "TransactionService",
     "CandidateFitAnalysisDTO",
     "FundLeaderDTO",
     "FundWatchlistService",

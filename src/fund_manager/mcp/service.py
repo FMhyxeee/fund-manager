@@ -14,7 +14,12 @@ from sqlalchemy.orm import Session
 from fund_manager.core.domain.decimal_constants import AMOUNT_QUANTIZER, RATIO_QUANTIZER, ZERO
 from fund_manager.core.domain.metrics import PortfolioValuePoint
 from fund_manager.core.serialization import serialize_for_json
-from fund_manager.core.services import AnalyticsService, PolicyService, PortfolioReadService
+from fund_manager.core.services import (
+    AnalyticsService,
+    PolicyService,
+    PortfolioReadService,
+    TransactionService,
+)
 from fund_manager.core.watchlist import FundWatchlistService
 from fund_manager.storage.models import (
     DecisionFeedback,
@@ -54,6 +59,7 @@ class FundManagerMCPService:
         self._policy_service = PolicyService(session)
         self._analytics_service = AnalyticsService()
         self._watchlist_service = FundWatchlistService(session)
+        self._transaction_service = TransactionService(session)
 
     def list_portfolios(self) -> dict[str, Any]:
         """List portfolios in stable display order."""
@@ -314,6 +320,102 @@ class FundManagerMCPService:
             msg = "Review report not found."
             raise ValueError(msg)
         return {"review_report": _build_review_report_payload(review_report)}
+
+    def list_transactions(
+        self,
+        *,
+        portfolio_id: int | None = None,
+        portfolio_name: str | None = None,
+        fund_code: str | None = None,
+        trade_type: str | None = None,
+        start_date: date | None = None,
+        end_date: date | None = None,
+        limit: int = 50,
+    ) -> dict[str, Any]:
+        """Return authoritative transaction records for OpenClaw queries."""
+        transactions = self._transaction_service.list_transactions(
+            portfolio_id=portfolio_id,
+            portfolio_name=portfolio_name,
+            fund_code=fund_code,
+            trade_type=trade_type,
+            start_date=start_date,
+            end_date=end_date,
+            limit=limit,
+        )
+        return {
+            "filters": {
+                "portfolio_id": portfolio_id,
+                "portfolio_name": portfolio_name,
+                "fund_code": fund_code,
+                "trade_type": trade_type,
+                "start_date": start_date.isoformat() if start_date is not None else None,
+                "end_date": end_date.isoformat() if end_date is not None else None,
+                "limit": limit,
+            },
+            "transactions": serialize_for_json(transactions),
+        }
+
+    def get_transaction(
+        self,
+        *,
+        transaction_id: int,
+    ) -> dict[str, Any]:
+        """Return one authoritative transaction record."""
+        transaction = self._transaction_service.get_transaction(transaction_id=transaction_id)
+        return {"transaction": serialize_for_json(transaction)}
+
+    def append_transaction(
+        self,
+        *,
+        portfolio_id: int | None = None,
+        portfolio_name: str | None = None,
+        fund_code: str,
+        fund_name: str | None = None,
+        trade_date: date,
+        trade_type: str,
+        units: Decimal | None = None,
+        gross_amount: Decimal | None = None,
+        fee_amount: Decimal | None = None,
+        nav_per_unit: Decimal | None = None,
+        external_reference: str | None = None,
+        source_name: str | None = "openclaw_mcp",
+        source_reference: str | None = None,
+        note: str | None = None,
+    ) -> dict[str, Any]:
+        """Append one authoritative transaction and commit its deterministic side effects."""
+        try:
+            result = self._transaction_service.append_transaction(
+                portfolio_id=portfolio_id,
+                portfolio_name=portfolio_name,
+                fund_code=fund_code,
+                fund_name=fund_name,
+                trade_date=trade_date,
+                trade_type=trade_type,
+                units=units,
+                gross_amount=gross_amount,
+                fee_amount=fee_amount,
+                nav_per_unit=nav_per_unit,
+                external_reference=external_reference,
+                source_name=source_name,
+                source_reference=source_reference,
+                note=note,
+            )
+            self._session.commit()
+        except Exception:
+            self._session.rollback()
+            raise
+
+        return {
+            "transaction": serialize_for_json(result.transaction),
+            "lot_sync": serialize_for_json(result.lot_sync),
+            "linked_transaction_ids": list(result.linked_transaction_ids),
+            "fund_created": result.fund_created,
+            "fund_updated": result.fund_updated,
+            "message": (
+                "Appended authoritative transaction "
+                f"{result.transaction.transaction_id} and rebuilt transaction-backed lots."
+            ),
+        }
 
     def get_watchlist_candidates(
         self,

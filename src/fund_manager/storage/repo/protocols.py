@@ -190,6 +190,19 @@ class FundMasterRepositoryProtocol(Protocol):
 class TransactionRepositoryProtocol(Protocol):
     """Abstract transaction repository contract."""
 
+    def get_by_id(self, transaction_id: int) -> TransactionRecord | None: ...
+
+    def list_recent(
+        self,
+        *,
+        portfolio_id: int | None = None,
+        fund_id: int | None = None,
+        trade_type: TransactionType | None = None,
+        start_date: date | None = None,
+        end_date: date | None = None,
+        limit: int = 50,
+    ) -> tuple[TransactionRecord, ...]: ...
+
     def append_import_record(
         self,
         *,

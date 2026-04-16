@@ -5,9 +5,10 @@ from __future__ import annotations
 from datetime import date
 from decimal import Decimal
 
-from sqlalchemy.orm import Session
+from sqlalchemy import select
+from sqlalchemy.orm import Session, selectinload
 
-from fund_manager.storage.models import TransactionRecord, TransactionType
+from fund_manager.storage.models import DecisionTransactionLink, TransactionRecord, TransactionType
 
 
 class TransactionRepository:
@@ -15,6 +16,57 @@ class TransactionRepository:
 
     def __init__(self, session: Session) -> None:
         self._session = session
+
+    def get_by_id(self, transaction_id: int) -> TransactionRecord | None:
+        """Return one transaction with related display and link metadata."""
+        statement = (
+            select(TransactionRecord)
+            .options(
+                selectinload(TransactionRecord.portfolio),
+                selectinload(TransactionRecord.fund),
+                selectinload(TransactionRecord.decision_links).selectinload(
+                    DecisionTransactionLink.feedback
+                ),
+            )
+            .where(TransactionRecord.id == transaction_id)
+            .limit(1)
+        )
+        return self._session.execute(statement).scalars().first()
+
+    def list_recent(
+        self,
+        *,
+        portfolio_id: int | None = None,
+        fund_id: int | None = None,
+        trade_type: TransactionType | None = None,
+        start_date: date | None = None,
+        end_date: date | None = None,
+        limit: int = 50,
+    ) -> tuple[TransactionRecord, ...]:
+        """Return transaction records in reverse chronological order."""
+        statement = select(TransactionRecord).options(
+            selectinload(TransactionRecord.portfolio),
+            selectinload(TransactionRecord.fund),
+            selectinload(TransactionRecord.decision_links).selectinload(
+                DecisionTransactionLink.feedback
+            ),
+        )
+        if portfolio_id is not None:
+            statement = statement.where(TransactionRecord.portfolio_id == portfolio_id)
+        if fund_id is not None:
+            statement = statement.where(TransactionRecord.fund_id == fund_id)
+        if trade_type is not None:
+            statement = statement.where(TransactionRecord.trade_type == trade_type)
+        if start_date is not None:
+            statement = statement.where(TransactionRecord.trade_date >= start_date)
+        if end_date is not None:
+            statement = statement.where(TransactionRecord.trade_date <= end_date)
+
+        statement = statement.order_by(
+            TransactionRecord.trade_date.desc(),
+            TransactionRecord.id.desc(),
+        ).limit(limit)
+        return tuple(self._session.execute(statement).scalars().all())
 
     def append_import_record(
         self,

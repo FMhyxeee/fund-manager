@@ -40,7 +40,9 @@ def create_server() -> FastMCP:
     server = FastMCP(
         name=f"{settings.app_name}-mcp",
         instructions=(
-            "Read-only data and simulation tools for the fund-manager personal portfolio system."
+            "Controlled fund-manager tools for the personal portfolio system. "
+            "Most tools are read-only; transaction_append is side-effecting and only appends "
+            "operator-confirmed authoritative transaction records."
         ),
     )
 
@@ -147,6 +149,71 @@ def create_server() -> FastMCP:
     def review_report_get(report_id: int) -> dict:
         with _service_session() as service:
             return service.get_review_report(report_id=report_id)
+
+    @server.tool()
+    def transaction_list(
+        portfolio_id: int | None = None,
+        portfolio_name: str | None = None,
+        fund_code: str | None = None,
+        trade_type: str | None = None,
+        start_date: str | None = None,
+        end_date: str | None = None,
+        limit: int = 50,
+    ) -> dict:
+        with _service_session() as service:
+            return service.list_transactions(
+                portfolio_id=portfolio_id,
+                portfolio_name=portfolio_name,
+                fund_code=fund_code,
+                trade_type=trade_type,
+                start_date=date.fromisoformat(start_date) if start_date is not None else None,
+                end_date=date.fromisoformat(end_date) if end_date is not None else None,
+                limit=limit,
+            )
+
+    @server.tool()
+    def transaction_get(transaction_id: int) -> dict:
+        with _service_session() as service:
+            return service.get_transaction(transaction_id=transaction_id)
+
+    @server.tool()
+    def transaction_append(
+        fund_code: str,
+        trade_date: str,
+        trade_type: str,
+        portfolio_id: int | None = None,
+        portfolio_name: str | None = None,
+        fund_name: str | None = None,
+        units: str | None = None,
+        gross_amount: str | None = None,
+        fee_amount: str | None = None,
+        nav_per_unit: str | None = None,
+        external_reference: str | None = None,
+        source_name: str | None = "openclaw_mcp",
+        source_reference: str | None = None,
+        note: str | None = None,
+    ) -> dict:
+        """Append one manually confirmed transaction to the authoritative ledger.
+
+        Decimal values should be sent as strings to preserve precision.
+        """
+        with _service_session() as service:
+            return service.append_transaction(
+                portfolio_id=portfolio_id,
+                portfolio_name=portfolio_name,
+                fund_code=fund_code,
+                fund_name=fund_name,
+                trade_date=date.fromisoformat(trade_date),
+                trade_type=trade_type,
+                units=_parse_optional_decimal(units),
+                gross_amount=_parse_optional_decimal(gross_amount),
+                fee_amount=_parse_optional_decimal(fee_amount),
+                nav_per_unit=_parse_optional_decimal(nav_per_unit),
+                external_reference=external_reference,
+                source_name=source_name,
+                source_reference=source_reference,
+                note=note,
+            )
 
     @server.tool()
     def watchlist_candidates(
@@ -257,6 +324,15 @@ def create_server() -> FastMCP:
             )
 
     return server
+
+
+def _parse_optional_decimal(value: str | None) -> Decimal | None:
+    if value is None:
+        return None
+    normalized_value = value.strip()
+    if not normalized_value:
+        return None
+    return Decimal(normalized_value)
 
 
 def main() -> None:
