@@ -1,17 +1,13 @@
-"""Watchlist and market radar read-model services."""
+"""Watchlist services."""
 
 from fund_manager.core.watchlist.service import (
-    CandidateFitAnalysisDTO,
-    FundLeaderDTO,
     FundWatchlistService,
-    WatchlistCandidateDTO,
-    WatchlistResultDTO,
+    WatchlistAddResult,
+    WatchlistItemDTO,
 )
 
 __all__ = [
-    "CandidateFitAnalysisDTO",
-    "FundLeaderDTO",
     "FundWatchlistService",
-    "WatchlistCandidateDTO",
-    "WatchlistResultDTO",
+    "WatchlistAddResult",
+    "WatchlistItemDTO",
 ]

@@ -12,36 +12,26 @@ from fund_manager.storage.models import (
     Base,
     FundMaster,
     Portfolio,
-    ReportPeriodType,
-    ReviewReport,
     TransactionRecord,
     TransactionType,
+    WatchlistItem,
 )
 
 
-def test_metadata_create_all_builds_expected_tables() -> None:
-    """The ORM metadata should build the full v1 schema on SQLite."""
+def test_metadata_create_all_builds_core_schema() -> None:
+    """The ORM metadata should build only the core ledger/watchlist schema."""
     engine = create_engine("sqlite+pysqlite:///:memory:")
 
     Base.metadata.create_all(engine)
 
     inspector = inspect(engine)
     assert set(inspector.get_table_names()) == {
-        "agent_debate_log",
-        "decision_feedback",
-        "decision_run",
-        "decision_transaction_link",
         "fund_master",
         "nav_snapshot",
         "portfolio",
-        "portfolio_policy",
-        "portfolio_policy_target",
-        "portfolio_snapshot",
         "position_lot",
-        "review_report",
-        "strategy_proposal",
-        "system_event_log",
         "transaction",
+        "watchlist_item",
     }
 
 
@@ -55,32 +45,29 @@ def test_metadata_declares_stable_unique_constraints_and_indexes() -> None:
     fund_unique_constraints = {
         constraint["name"] for constraint in inspector.get_unique_constraints("fund_master")
     }
-    transaction_indexes = {index["name"] for index in inspector.get_indexes("transaction")}
-    decision_feedback_indexes = {
-        index["name"] for index in inspector.get_indexes("decision_feedback")
+    watchlist_unique_constraints = {
+        constraint["name"] for constraint in inspector.get_unique_constraints("watchlist_item")
     }
-    decision_run_indexes = {index["name"] for index in inspector.get_indexes("decision_run")}
+    transaction_indexes = {index["name"] for index in inspector.get_indexes("transaction")}
     position_lot_indexes = {index["name"] for index in inspector.get_indexes("position_lot")}
+    watchlist_indexes = {index["name"] for index in inspector.get_indexes("watchlist_item")}
 
     assert "uq_fund_master__fund_code" in fund_unique_constraints
+    assert "uq_watchlist_item__fund_id" in watchlist_unique_constraints
     assert {
         "ix_transaction__fund_id__trade_date",
         "ix_transaction__portfolio_id__trade_date",
         "ix_transaction__source_name__source_reference",
     } <= transaction_indexes
     assert {
-        "ix_decision_feedback__decision_run_id__action_index",
-        "ix_decision_feedback__portfolio_id__feedback_date",
-    } <= decision_feedback_indexes
-    assert {
-        "ix_decision_run__portfolio_id__decision_date",
-        "ix_decision_run__run_id",
-    } <= decision_run_indexes
-    assert {
         "ix_position_lot__portfolio_id__as_of_date",
         "ix_position_lot__portfolio_id__fund_id__lot_key",
         "ix_position_lot__run_id",
     } <= position_lot_indexes
+    assert {
+        "ix_watchlist_item__category",
+        "ix_watchlist_item__removed_at",
+    } <= watchlist_indexes
 
 
 def test_transaction_enum_round_trips_lowercase_storage() -> None:
@@ -112,28 +99,25 @@ def test_transaction_enum_round_trips_lowercase_storage() -> None:
     assert loaded_value is TransactionType.BUY
 
 
-def test_review_report_enum_round_trips_lowercase_storage() -> None:
-    """Report period enums should persist values that match the migration."""
+def test_watchlist_item_round_trips_json_tags() -> None:
+    """Watchlist style tags should stay structured."""
     engine = create_engine("sqlite+pysqlite:///:memory:")
     Base.metadata.create_all(engine)
 
     with Session(engine) as session:
-        portfolio = Portfolio(portfolio_code="main", portfolio_name="Main", is_default=True)
-        session.add(portfolio)
+        fund = FundMaster(fund_code="000001", fund_name="Alpha", source_name="test")
+        session.add(fund)
         session.flush()
         session.add(
-            ReviewReport(
-                portfolio_id=portfolio.id,
-                period_type=ReportPeriodType.WEEKLY,
-                period_start=date(2026, 3, 1),
-                period_end=date(2026, 3, 7),
-                report_markdown="# report",
+            WatchlistItem(
+                fund_id=fund.id,
+                category="broad_index",
+                style_tags_json=["index", "broad"],
+                risk_level="medium",
             )
         )
         session.commit()
 
-        stored_value = session.execute(text("SELECT period_type FROM review_report")).scalar_one()
-        loaded_value = session.execute(select(ReviewReport.period_type)).scalar_one()
+        stored_value = session.execute(select(WatchlistItem.style_tags_json)).scalar_one()
 
-    assert stored_value == "weekly"
-    assert loaded_value is ReportPeriodType.WEEKLY
+    assert stored_value == ["index", "broad"]

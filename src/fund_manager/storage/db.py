@@ -2,6 +2,7 @@
 
 from functools import lru_cache
 from pathlib import Path
+from typing import Any
 
 from sqlalchemy import Engine, MetaData, create_engine, event
 from sqlalchemy.orm import DeclarativeBase, Session, sessionmaker
@@ -50,7 +51,7 @@ def get_session_factory() -> sessionmaker[Session]:
     )
 
 
-def _enable_sqlite_foreign_keys(dbapi_connection, _connection_record) -> None:
+def _enable_sqlite_foreign_keys(dbapi_connection: Any, _connection_record: Any) -> None:
     """Keep SQLite foreign key constraints enforced for every connection."""
     previous_autocommit = getattr(dbapi_connection, "autocommit", None)
     if previous_autocommit is not None:

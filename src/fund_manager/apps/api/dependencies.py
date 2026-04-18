@@ -6,7 +6,6 @@ from collections.abc import Generator
 
 from sqlalchemy.orm import Session
 
-from fund_manager.core.config import Settings, get_settings
 from fund_manager.storage.db import get_session_factory
 
 

@@ -8,7 +8,7 @@ from decimal import Decimal
 from sqlalchemy import select
 from sqlalchemy.orm import Session, selectinload
 
-from fund_manager.storage.models import DecisionTransactionLink, TransactionRecord, TransactionType
+from fund_manager.storage.models import TransactionRecord, TransactionType
 
 
 class TransactionRepository:
@@ -24,9 +24,6 @@ class TransactionRepository:
             .options(
                 selectinload(TransactionRecord.portfolio),
                 selectinload(TransactionRecord.fund),
-                selectinload(TransactionRecord.decision_links).selectinload(
-                    DecisionTransactionLink.feedback
-                ),
             )
             .where(TransactionRecord.id == transaction_id)
             .limit(1)
@@ -47,9 +44,6 @@ class TransactionRepository:
         statement = select(TransactionRecord).options(
             selectinload(TransactionRecord.portfolio),
             selectinload(TransactionRecord.fund),
-            selectinload(TransactionRecord.decision_links).selectinload(
-                DecisionTransactionLink.feedback
-            ),
         )
         if portfolio_id is not None:
             statement = statement.where(TransactionRecord.portfolio_id == portfolio_id)

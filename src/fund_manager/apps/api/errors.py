@@ -61,7 +61,7 @@ def install_exception_handlers(application: FastAPI) -> None:
             error=ErrorBody(
                 code="validation_error",
                 message="Request validation failed",
-                details=exc.errors(),
+                details=list(exc.errors()),
             ),
         )
         return JSONResponse(
@@ -113,30 +113,20 @@ def _infer_error_code(status_code: int, message: str) -> str:
     if status_code == 404:
         if "portfolio not found" in normalized:
             return "portfolio_not_found"
-        if "decision run" in normalized and "not found" in normalized:
-            return "decision_run_not_found"
-        if "active policy not found" in normalized:
-            return "active_policy_not_found"
-        if "report not found" in normalized:
-            return "report_not_found"
-        if "strategy proposal not found" in normalized:
-            return "strategy_proposal_not_found"
+        if "transaction not found" in normalized:
+            return "transaction_not_found"
+        if "watchlist item not found" in normalized:
+            return "watchlist_item_not_found"
         if "fund not found" in normalized:
             return "fund_not_found"
         return "not_found"
 
     if status_code == 409:
-        if "run id" in normalized and "already exists" in normalized:
-            return "duplicate_run_id"
         if "missing nav" in normalized or "incomplete portfolio snapshot" in normalized:
             return "snapshot_incomplete"
         return "conflict"
 
     if status_code == 400:
-        if "action index" in normalized or "action_index" in normalized:
-            return "action_index_invalid"
-        if "period_start cannot be later than period_end" in normalized:
-            return "invalid_period_range"
         if "fund '" in normalized and "was not found" in normalized:
             return "fund_not_found"
         return "invalid_request"

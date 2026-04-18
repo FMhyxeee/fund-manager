@@ -15,9 +15,6 @@ from fund_manager.core.domain.decimal_constants import (
     UNITS_QUANTIZER,
     ZERO,
 )
-from fund_manager.core.services.decision_reconciliation_service import (
-    DecisionReconciliationService,
-)
 from fund_manager.core.services.portfolio_read_service import PortfolioReadService
 from fund_manager.core.services.transaction_lot_sync_service import (
     TransactionLotSyncResult,
@@ -30,7 +27,7 @@ from fund_manager.storage.repo.protocols import (
     TransactionRepositoryProtocol,
 )
 
-_OPENCLAW_MCP_SOURCE = "openclaw_mcp"
+_DEFAULT_TRANSACTION_SOURCE = "api"
 _MAX_TRANSACTION_LIMIT = 200
 
 
@@ -55,8 +52,6 @@ class TransactionRecordDTO:
     source_name: str | None
     source_reference: str | None
     note: str | None
-    linked_feedback_ids: tuple[int, ...]
-    linked_decision_run_ids: tuple[int, ...]
     created_at: datetime
 
 
@@ -66,7 +61,6 @@ class TransactionAppendResult:
 
     transaction: TransactionRecordDTO
     lot_sync: TransactionLotSyncResult
-    linked_transaction_ids: tuple[int, ...]
     fund_created: bool
     fund_updated: bool
 
@@ -82,7 +76,6 @@ class TransactionService:
         fund_repo: FundMasterRepositoryProtocol | None = None,
         transaction_repo: TransactionRepositoryProtocol | None = None,
         transaction_lot_sync_service: TransactionLotSyncService | None = None,
-        decision_reconciliation_service: DecisionReconciliationService | None = None,
     ) -> None:
         self._session = session
         self._portfolio_read_service = portfolio_read_service or PortfolioReadService(session)
@@ -90,9 +83,6 @@ class TransactionService:
         self._transaction_repo = transaction_repo or TransactionRepository(session)
         self._transaction_lot_sync_service = (
             transaction_lot_sync_service or TransactionLotSyncService(session)
-        )
-        self._decision_reconciliation_service = (
-            decision_reconciliation_service or DecisionReconciliationService(session)
         )
 
     def list_transactions(
@@ -165,7 +155,7 @@ class TransactionService:
         fee_amount: Decimal | None = None,
         nav_per_unit: Decimal | None = None,
         external_reference: str | None = None,
-        source_name: str | None = _OPENCLAW_MCP_SOURCE,
+        source_name: str | None = _DEFAULT_TRANSACTION_SOURCE,
         source_reference: str | None = None,
         note: str | None = None,
     ) -> TransactionAppendResult:
@@ -178,7 +168,7 @@ class TransactionService:
             source_name,
             field_name="source_name",
             max_length=64,
-        ) or _OPENCLAW_MCP_SOURCE
+        ) or _DEFAULT_TRANSACTION_SOURCE
         fund, fund_created, fund_updated = self._resolve_fund(
             fund_code=fund_code,
             fund_name=fund_name,
@@ -242,10 +232,6 @@ class TransactionService:
             portfolio_id=portfolio.portfolio_id,
             run_id=sync_run_id,
         )
-        linked_transaction_ids = self._decision_reconciliation_service.reconcile_transactions(
-            (transaction,),
-            match_source="transaction_mcp",
-        )
         self._session.flush()
 
         if transaction.id is None:
@@ -259,7 +245,6 @@ class TransactionService:
         return TransactionAppendResult(
             transaction=self._to_dto(persisted_transaction),
             lot_sync=lot_sync,
-            linked_transaction_ids=linked_transaction_ids,
             fund_created=fund_created,
             fund_updated=fund_updated,
         )
@@ -301,18 +286,6 @@ class TransactionService:
         return upsert_result.fund, upsert_result.created, upsert_result.updated
 
     def _to_dto(self, transaction: TransactionRecord) -> TransactionRecordDTO:
-        linked_feedback_ids = tuple(
-            sorted(transaction_link.feedback_id for transaction_link in transaction.decision_links)
-        )
-        linked_decision_run_ids = tuple(
-            sorted(
-                {
-                    transaction_link.feedback.decision_run_id
-                    for transaction_link in transaction.decision_links
-                    if transaction_link.feedback is not None
-                }
-            )
-        )
         return TransactionRecordDTO(
             transaction_id=transaction.id,
             portfolio_id=transaction.portfolio_id,
@@ -331,8 +304,6 @@ class TransactionService:
             source_name=transaction.source_name,
             source_reference=transaction.source_reference,
             note=transaction.note,
-            linked_feedback_ids=linked_feedback_ids,
-            linked_decision_run_ids=linked_decision_run_ids,
             created_at=transaction.created_at,
         )
 

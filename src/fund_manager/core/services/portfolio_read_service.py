@@ -1,4 +1,4 @@
-"""Read-only portfolio service utilities shared by MCP and agent tools."""
+"""Read-only portfolio service utilities for API callers."""
 
 from __future__ import annotations
 
@@ -60,7 +60,10 @@ class PortfolioReadService:
 
     def list_portfolios(self) -> tuple[PortfolioSummaryDTO, ...]:
         """List available portfolios in a stable order for read-only consumers."""
-        return tuple(self._to_summary_dto(portfolio) for portfolio in self._portfolio_repo.list_all())
+        return tuple(
+            self._to_summary_dto(portfolio)
+            for portfolio in self._portfolio_repo.list_all()
+        )
 
     def get_portfolio_snapshot(
         self,

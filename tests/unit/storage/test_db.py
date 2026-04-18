@@ -2,13 +2,19 @@
 
 from __future__ import annotations
 
+from pathlib import Path
+
+import pytest
 from sqlalchemy import text
 
 from fund_manager.core.config import get_settings
 from fund_manager.storage.db import get_engine, get_session_factory
 
 
-def test_sqlite_engine_enables_foreign_keys(monkeypatch, tmp_path) -> None:
+def test_sqlite_engine_enables_foreign_keys(
+    monkeypatch: pytest.MonkeyPatch,
+    tmp_path: Path,
+) -> None:
     """SQLite connections should enforce foreign keys by default."""
     database_path = tmp_path / "fk-check.sqlite"
     monkeypatch.setenv("DATABASE_URL", f"sqlite:///{database_path.as_posix()}")

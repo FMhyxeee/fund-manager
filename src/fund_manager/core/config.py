@@ -1,7 +1,6 @@
 """Central application settings."""
 
 from functools import lru_cache
-from pathlib import Path
 from typing import Literal
 
 from pydantic import Field
@@ -25,14 +24,7 @@ class Settings(BaseSettings):
     log_level: str = "INFO"
 
     database_url: str = Field(default="sqlite:///./data/fund_manager.db")
-    report_output_dir: Path = Path("var/reports")
     default_portfolio_name: str = "main"
-
-    openclaw_base_url: str = "http://localhost:8081"
-    openclaw_workspace: str = "fund-manager"
-
-    openai_provider_enabled: bool = True
-    glm_provider_enabled: bool = False
 
 
 @lru_cache

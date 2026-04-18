@@ -3,7 +3,7 @@
 from __future__ import annotations
 
 from collections.abc import Iterable, Mapping
-from dataclasses import asdict, dataclass, replace
+from dataclasses import asdict, dataclass
 from datetime import date
 from decimal import ROUND_HALF_UP, Decimal
 
@@ -21,16 +21,15 @@ from fund_manager.storage.models import NavSnapshot, PositionLot
 from fund_manager.storage.repo import (
     NavSnapshotRepository,
     PortfolioRepository,
-    PortfolioSnapshotRepository,
     PositionLotRepository,
     resolve_authoritative_position_lots,
 )
 from fund_manager.storage.repo.protocols import (
     NavSnapshotRepositoryProtocol,
     PortfolioRepositoryProtocol,
-    PortfolioSnapshotRepositoryProtocol,
     PositionLotRepositoryProtocol,
 )
+
 
 class PortfolioServiceError(ValueError):
     """Base exception for portfolio snapshot assembly failures."""
@@ -44,21 +43,9 @@ class PortfolioNotFoundError(PortfolioServiceError):
         self.portfolio_id = portfolio_id
 
 
-class IncompletePortfolioSnapshotError(PortfolioServiceError):
-    """Raised when a snapshot cannot be persisted because canonical values are incomplete."""
-
-    def __init__(self, missing_nav_fund_codes: tuple[str, ...]) -> None:
-        fund_codes = ", ".join(missing_nav_fund_codes) if missing_nav_fund_codes else "unknown"
-        super().__init__(
-            "Cannot persist a portfolio snapshot while NAV data is missing for: "
-            f"{fund_codes}."
-        )
-        self.missing_nav_fund_codes = missing_nav_fund_codes
-
-
 @dataclass(frozen=True)
 class PortfolioValuationDTO:
-    """One portfolio-level valuation point suitable for APIs and agent tools."""
+    """One portfolio-level valuation point suitable for APIs."""
 
     as_of_date: date
     market_value_amount: Decimal
@@ -139,16 +126,12 @@ class PortfolioService:
         portfolio_repo: PortfolioRepositoryProtocol | None = None,
         position_lot_repo: PositionLotRepositoryProtocol | None = None,
         nav_snapshot_repo: NavSnapshotRepositoryProtocol | None = None,
-        portfolio_snapshot_repo: PortfolioSnapshotRepositoryProtocol | None = None,
     ) -> None:
         self._session = session
         self._analytics_service = analytics_service or AnalyticsService()
         self._portfolio_repo = portfolio_repo or PortfolioRepository(session)
         self._position_lot_repo = position_lot_repo or PositionLotRepository(session)
         self._nav_snapshot_repo = nav_snapshot_repo or NavSnapshotRepository(session)
-        self._portfolio_snapshot_repo = (
-            portfolio_snapshot_repo or PortfolioSnapshotRepository(session)
-        )
 
     def assemble_portfolio_snapshot(
         self,
@@ -249,45 +232,6 @@ class PortfolioService:
         )
         return snapshot.positions
 
-    def save_portfolio_snapshot(
-        self,
-        portfolio_id: int,
-        *,
-        as_of_date: date,
-        run_id: str | None = None,
-        workflow_name: str | None = None,
-    ) -> PortfolioSnapshotDTO:
-        """Persist a complete portfolio snapshot row and return the stored DTO."""
-        snapshot = self.assemble_portfolio_snapshot(
-            portfolio_id,
-            as_of_date=as_of_date,
-            run_id=run_id,
-            workflow_name=workflow_name,
-        )
-        if snapshot.total_market_value_amount is None or snapshot.unrealized_pnl_amount is None:
-            raise IncompletePortfolioSnapshotError(snapshot.missing_nav_fund_codes)
-
-        try:
-            portfolio_snapshot = self._portfolio_snapshot_repo.append(
-                portfolio_id=portfolio_id,
-                snapshot_date=as_of_date,
-                total_cost_amount=snapshot.total_cost_amount,
-                total_market_value_amount=snapshot.total_market_value_amount,
-                unrealized_pnl_amount=snapshot.unrealized_pnl_amount,
-                daily_return_ratio=snapshot.daily_return_ratio,
-                weekly_return_ratio=snapshot.weekly_return_ratio,
-                monthly_return_ratio=snapshot.monthly_return_ratio,
-                max_drawdown_ratio=snapshot.max_drawdown_ratio,
-                run_id=run_id,
-                workflow_name=workflow_name,
-            )
-            self._session.commit()
-        except Exception:
-            self._session.rollback()
-            raise
-
-        return replace(snapshot, snapshot_record_id=portfolio_snapshot.id)
-
     def _build_position_snapshot_dtos(
         self,
         position_lots: Iterable[PositionLot],
@@ -299,9 +243,10 @@ class PortfolioService:
                 fund_code=aggregate.fund_code,
                 units=aggregate.units,
                 total_cost_amount=aggregate.total_cost_amount,
-                nav_per_unit=latest_nav_by_fund_id.get(aggregate.fund_id).unit_nav_amount
-                if aggregate.fund_id in latest_nav_by_fund_id
-                else None,
+                nav_per_unit=self._get_nav_amount(
+                    latest_nav_by_fund_id,
+                    fund_id=aggregate.fund_id,
+                ),
             )
             for aggregate in aggregates
         )
@@ -399,9 +344,10 @@ class PortfolioService:
                     fund_code=aggregate.fund_code,
                     units=aggregate.units,
                     total_cost_amount=aggregate.total_cost_amount,
-                    nav_per_unit=latest_nav_by_fund_id.get(aggregate.fund_id).unit_nav_amount
-                    if aggregate.fund_id in latest_nav_by_fund_id
-                    else None,
+                    nav_per_unit=self._get_nav_amount(
+                        latest_nav_by_fund_id,
+                        fund_id=aggregate.fund_id,
+                    ),
                 )
                 for aggregate in aggregates
             )
@@ -474,6 +420,17 @@ class PortfolioService:
             latest_by_fund_id[nav_snapshot.fund_id] = nav_snapshot
         return latest_by_fund_id
 
+    def _get_nav_amount(
+        self,
+        latest_nav_by_fund_id: Mapping[int, NavSnapshot],
+        *,
+        fund_id: int,
+    ) -> Decimal | None:
+        latest_nav = latest_nav_by_fund_id.get(fund_id)
+        if latest_nav is None:
+            return None
+        return latest_nav.unit_nav_amount
+
     def _average_cost_per_unit(
         self,
         total_cost_amount: Decimal,
@@ -491,7 +448,6 @@ class PortfolioService:
 
 
 __all__ = [
-    "IncompletePortfolioSnapshotError",
     "PortfolioNotFoundError",
     "PortfolioPositionDTO",
     "PortfolioService",

@@ -12,20 +12,12 @@ from sqlalchemy import select
 from sqlalchemy.orm import Session
 
 from fund_manager.apps.api.dependencies import get_db
-from fund_manager.apps.api.routes.reports import (
-    ReportDetailResponse,
-    _build_report_detail_response,
-)
-from fund_manager.apps.api.routes.strategy_proposals import (
-    StrategyProposalDetailResponse,
-    _build_strategy_proposal_detail_response,
-)
 from fund_manager.core.services.portfolio_service import (
     PortfolioNotFoundError,
     PortfolioService,
+    PortfolioSnapshotDTO,
 )
 from fund_manager.storage.models import Portfolio
-from fund_manager.storage.repo import ReviewReportRepository, StrategyProposalRepository
 
 router = APIRouter(prefix="/portfolios", tags=["portfolios"])
 
@@ -112,8 +104,8 @@ def list_portfolios(session: Annotated[Session, Depends(get_db)]) -> list[Portfo
 @router.get("/{portfolio_id}/snapshot", response_model=PortfolioSnapshotResponse)
 def get_portfolio_snapshot(
     portfolio_id: int,
+    session: Annotated[Session, Depends(get_db)],
     as_of_date: Annotated[date | None, Query()] = None,
-    session: Annotated[Session, Depends(get_db)] = None,
 ) -> PortfolioSnapshotResponse:
     snapshot = _load_snapshot_or_404(
         session,
@@ -140,8 +132,8 @@ def get_portfolio_snapshot(
 @router.get("/{portfolio_id}/positions", response_model=PositionBreakdownResponse)
 def get_position_breakdown(
     portfolio_id: int,
+    session: Annotated[Session, Depends(get_db)],
     as_of_date: Annotated[date | None, Query()] = None,
-    session: Annotated[Session, Depends(get_db)] = None,
 ) -> PositionBreakdownResponse:
     snapshot = _load_snapshot_or_404(
         session,
@@ -160,8 +152,8 @@ def get_position_breakdown(
 @router.get("/{portfolio_id}/metrics", response_model=PortfolioMetricsResponse)
 def get_portfolio_metrics(
     portfolio_id: int,
+    session: Annotated[Session, Depends(get_db)],
     as_of_date: Annotated[date | None, Query()] = None,
-    session: Annotated[Session, Depends(get_db)] = None,
 ) -> PortfolioMetricsResponse:
     snapshot = _load_snapshot_or_404(
         session,
@@ -200,9 +192,9 @@ def get_portfolio_metrics(
 )
 def get_portfolio_valuation_history(
     portfolio_id: int,
+    session: Annotated[Session, Depends(get_db)],
     end_date: Annotated[date | None, Query()] = None,
     start_date: Annotated[date | None, Query()] = None,
-    session: Annotated[Session, Depends(get_db)] = None,
 ) -> PortfolioValuationHistoryResponse:
     snapshot = _load_snapshot_or_404(
         session,
@@ -227,51 +219,12 @@ def get_portfolio_valuation_history(
     )
 
 
-@router.get("/{portfolio_id}/latest-report", response_model=ReportDetailResponse)
-def get_latest_report(
-    portfolio_id: int,
-    session: Annotated[Session, Depends(get_db)],
-) -> ReportDetailResponse:
-    portfolio = (
-        session.execute(select(Portfolio).where(Portfolio.id == portfolio_id))
-        .scalar_one_or_none()
-    )
-    if portfolio is None:
-        raise HTTPException(status_code=404, detail="Portfolio not found")
-
-    report = ReviewReportRepository(session).get_latest_for_portfolio(portfolio_id)
-    if report is None:
-        raise HTTPException(status_code=404, detail="Report not found")
-    return _build_report_detail_response(report)
-
-
-@router.get(
-    "/{portfolio_id}/latest-strategy-proposal",
-    response_model=StrategyProposalDetailResponse,
-)
-def get_latest_strategy_proposal(
-    portfolio_id: int,
-    session: Annotated[Session, Depends(get_db)],
-) -> StrategyProposalDetailResponse:
-    portfolio = (
-        session.execute(select(Portfolio).where(Portfolio.id == portfolio_id))
-        .scalar_one_or_none()
-    )
-    if portfolio is None:
-        raise HTTPException(status_code=404, detail="Portfolio not found")
-
-    proposal = StrategyProposalRepository(session).get_latest_for_portfolio(portfolio_id)
-    if proposal is None:
-        raise HTTPException(status_code=404, detail="Strategy proposal not found")
-    return _build_strategy_proposal_detail_response(proposal)
-
-
 def _load_snapshot_or_404(
     session: Session,
     *,
     portfolio_id: int,
     as_of_date: date,
-):
+) -> PortfolioSnapshotDTO:
     service = PortfolioService(session)
     try:
         return service.assemble_portfolio_snapshot(
@@ -282,7 +235,7 @@ def _load_snapshot_or_404(
         raise HTTPException(status_code=404, detail="Portfolio not found") from exc
 
 
-def _build_position_snapshots(snapshot) -> list[PositionSnapshot]:
+def _build_position_snapshots(snapshot: PortfolioSnapshotDTO) -> list[PositionSnapshot]:
     return [
         PositionSnapshot(
             fund_code=position.fund_code,

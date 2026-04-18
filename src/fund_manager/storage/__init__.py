@@ -2,34 +2,24 @@
 
 from fund_manager.storage.db import Base, get_engine, get_session_factory
 from fund_manager.storage.models import (
-    AgentDebateLog,
     FundMaster,
     NavSnapshot,
     Portfolio,
-    PortfolioSnapshot,
     PositionLot,
-    ReportPeriodType,
-    ReviewReport,
-    StrategyProposal,
-    SystemEventLog,
     TransactionRecord,
     TransactionType,
+    WatchlistItem,
 )
 
 __all__ = [
-    "AgentDebateLog",
     "Base",
     "FundMaster",
     "NavSnapshot",
     "Portfolio",
-    "PortfolioSnapshot",
     "PositionLot",
-    "ReportPeriodType",
-    "ReviewReport",
-    "StrategyProposal",
-    "SystemEventLog",
     "TransactionRecord",
     "TransactionType",
+    "WatchlistItem",
     "get_engine",
     "get_session_factory",
 ]

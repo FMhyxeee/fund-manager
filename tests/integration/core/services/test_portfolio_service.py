@@ -8,19 +8,11 @@ from decimal import Decimal
 from pathlib import Path
 
 import pytest
-from sqlalchemy import create_engine, func, select
+from sqlalchemy import create_engine
 from sqlalchemy.orm import Session, sessionmaker
 
-from fund_manager.core.services import IncompletePortfolioSnapshotError, PortfolioService
-from fund_manager.data_adapters.import_holdings import import_holdings_csv
-from fund_manager.storage.models import (
-    Base,
-    FundMaster,
-    NavSnapshot,
-    Portfolio,
-    PortfolioSnapshot,
-    PositionLot,
-)
+from fund_manager.core.services import PortfolioService
+from fund_manager.storage.models import Base, FundMaster, NavSnapshot, Portfolio, PositionLot
 
 
 @pytest.fixture
@@ -36,21 +28,150 @@ def session(tmp_path: Path) -> Iterator[Session]:
     engine.dispose()
 
 
-def test_portfolio_service_assembles_snapshot_and_persists_it(session: Session) -> None:
-    portfolio = Portfolio(
-        portfolio_code="main",
-        portfolio_name="Main",
+def test_portfolio_service_assembles_snapshot(session: Session) -> None:
+    portfolio, alpha_fund, beta_fund = seed_two_fund_portfolio(session)
+
+    snapshot = PortfolioService(session).get_portfolio_snapshot(
+        portfolio.id,
+        as_of_date=date(2026, 3, 15),
     )
-    alpha_fund = FundMaster(
-        fund_code="000001",
-        fund_name="Alpha Fund",
-        source_name="test",
+
+    assert snapshot.portfolio_name == "Main"
+    assert snapshot.position_count == 2
+    assert snapshot.total_cost_amount == Decimal("27.0000")
+    assert snapshot.total_market_value_amount == Decimal("33.5000")
+    assert snapshot.unrealized_pnl_amount == Decimal("6.5000")
+    assert snapshot.daily_return_ratio == Decimal("0.101974")
+    assert snapshot.weekly_return_ratio == Decimal("0.139456")
+    assert snapshot.monthly_return_ratio == Decimal("0.340000")
+    assert snapshot.max_drawdown_ratio == Decimal("0.000000")
+    assert snapshot.valuation_history_end_date == date(2026, 3, 14)
+    assert [point.as_of_date for point in snapshot.valuation_history] == [
+        date(2026, 3, 1),
+        date(2026, 3, 10),
+        date(2026, 3, 12),
+        date(2026, 3, 14),
+    ]
+
+    alpha_position, beta_position = snapshot.positions
+    assert alpha_position.fund_id == alpha_fund.id
+    assert alpha_position.units == Decimal("12.000000")
+    assert alpha_position.current_value_amount == Decimal("18.0000")
+    assert alpha_position.weight_ratio == Decimal("0.537313")
+    assert beta_position.fund_id == beta_fund.id
+    assert beta_position.current_value_amount == Decimal("15.5000")
+    assert beta_position.weight_ratio == Decimal("0.462687")
+
+
+def test_portfolio_service_surfaces_missing_nav_explicitly(session: Session) -> None:
+    portfolio = Portfolio(portfolio_code="main", portfolio_name="Main")
+    alpha_fund = FundMaster(fund_code="000001", fund_name="Alpha Fund", source_name="test")
+    beta_fund = FundMaster(fund_code="000002", fund_name="Beta Fund", source_name="test")
+    session.add_all([portfolio, alpha_fund, beta_fund])
+    session.flush()
+    session.add_all(
+        [
+            PositionLot(
+                portfolio_id=portfolio.id,
+                fund_id=alpha_fund.id,
+                run_id="bootstrap-1",
+                lot_key="initial:000001:20260401:seed0001",
+                opened_on=date(2026, 4, 1),
+                as_of_date=date(2026, 4, 1),
+                remaining_units=Decimal("10.000000"),
+                average_cost_per_unit=Decimal("1.00000000"),
+                total_cost_amount=Decimal("10.0000"),
+            ),
+            PositionLot(
+                portfolio_id=portfolio.id,
+                fund_id=beta_fund.id,
+                run_id="bootstrap-1",
+                lot_key="initial:000002:20260401:seed0001",
+                opened_on=date(2026, 4, 1),
+                as_of_date=date(2026, 4, 1),
+                remaining_units=Decimal("5.000000"),
+                average_cost_per_unit=Decimal("1.90000000"),
+                total_cost_amount=Decimal("9.5000"),
+            ),
+            NavSnapshot(
+                fund_id=alpha_fund.id,
+                nav_date=date(2026, 4, 1),
+                unit_nav_amount=Decimal("1.25000000"),
+                source_name="test",
+            ),
+        ]
     )
-    beta_fund = FundMaster(
-        fund_code="000002",
-        fund_name="Beta Fund",
-        source_name="test",
+    session.commit()
+
+    snapshot = PortfolioService(session).get_portfolio_snapshot(
+        portfolio.id,
+        as_of_date=date(2026, 4, 1),
     )
+
+    assert snapshot.position_count == 2
+    assert snapshot.total_cost_amount == Decimal("19.5000")
+    assert snapshot.total_market_value_amount is None
+    assert snapshot.unrealized_pnl_amount is None
+    assert snapshot.missing_nav_fund_codes == ("000002",)
+
+
+def test_portfolio_service_prefers_transaction_aggregate_lots_over_bootstrap_for_same_fund(
+    session: Session,
+) -> None:
+    portfolio = Portfolio(portfolio_code="main", portfolio_name="Main", is_default=True)
+    fund = FundMaster(fund_code="000001", fund_name="Alpha Fund", source_name="test")
+    session.add_all([portfolio, fund])
+    session.flush()
+
+    session.add_all(
+        [
+            PositionLot(
+                portfolio_id=portfolio.id,
+                fund_id=fund.id,
+                run_id="holdings-import-20260301",
+                lot_key="initial:000001:20260301:seed0001",
+                opened_on=date(2026, 3, 1),
+                as_of_date=date(2026, 3, 1),
+                remaining_units=Decimal("10.000000"),
+                average_cost_per_unit=Decimal("1.00000000"),
+                total_cost_amount=Decimal("10.0000"),
+            ),
+            PositionLot(
+                portfolio_id=portfolio.id,
+                fund_id=fund.id,
+                run_id="txnagg-sync-20260305",
+                lot_key="txnagg:000001",
+                opened_on=date(2026, 3, 1),
+                as_of_date=date(2026, 3, 5),
+                remaining_units=Decimal("6.000000"),
+                average_cost_per_unit=Decimal("1.00000000"),
+                total_cost_amount=Decimal("6.0000"),
+            ),
+            NavSnapshot(
+                fund_id=fund.id,
+                nav_date=date(2026, 3, 5),
+                unit_nav_amount=Decimal("1.20000000"),
+                source_name="test",
+            ),
+        ]
+    )
+    session.commit()
+
+    snapshot = PortfolioService(session).get_portfolio_snapshot(
+        portfolio.id,
+        as_of_date=date(2026, 3, 5),
+    )
+
+    assert snapshot.position_count == 1
+    assert snapshot.positions[0].fund_code == "000001"
+    assert snapshot.positions[0].units == Decimal("6.000000")
+    assert snapshot.positions[0].total_cost_amount == Decimal("6.0000")
+
+
+def seed_two_fund_portfolio(session: Session) -> tuple[Portfolio, FundMaster, FundMaster]:
+    portfolio = Portfolio(portfolio_code="main", portfolio_name="Main")
+    alpha_fund = FundMaster(fund_code="000001", fund_name="Alpha Fund", source_name="test")
+    beta_fund = FundMaster(fund_code="000002", fund_name="Beta Fund", source_name="test")
     session.add_all([portfolio, alpha_fund, beta_fund])
     session.flush()
 
@@ -128,178 +249,4 @@ def test_portfolio_service_assembles_snapshot_and_persists_it(session: Session) 
         ]
     )
     session.commit()
-
-    service = PortfolioService(session)
-
-    snapshot = service.get_portfolio_snapshot(
-        portfolio.id,
-        as_of_date=date(2026, 3, 15),
-    )
-
-    assert snapshot.portfolio_name == "Main"
-    assert snapshot.position_count == 2
-    assert snapshot.total_cost_amount == Decimal("27.0000")
-    assert snapshot.total_market_value_amount == Decimal("33.5000")
-    assert snapshot.unrealized_pnl_amount == Decimal("6.5000")
-    assert snapshot.daily_return_ratio == Decimal("0.101974")
-    assert snapshot.weekly_return_ratio == Decimal("0.139456")
-    assert snapshot.monthly_return_ratio == Decimal("0.340000")
-    assert snapshot.max_drawdown_ratio == Decimal("0.000000")
-    assert snapshot.valuation_history_end_date == date(2026, 3, 14)
-    assert [point.as_of_date for point in snapshot.valuation_history] == [
-        date(2026, 3, 1),
-        date(2026, 3, 10),
-        date(2026, 3, 12),
-        date(2026, 3, 14),
-    ]
-
-    alpha_position, beta_position = snapshot.positions
-    assert alpha_position.fund_code == "000001"
-    assert alpha_position.units == Decimal("12.000000")
-    assert alpha_position.current_value_amount == Decimal("18.0000")
-    assert alpha_position.weight_ratio == Decimal("0.537313")
-    assert beta_position.fund_code == "000002"
-    assert beta_position.current_value_amount == Decimal("15.5000")
-    assert beta_position.weight_ratio == Decimal("0.462687")
-
-    stored_snapshot = service.save_portfolio_snapshot(
-        portfolio.id,
-        as_of_date=date(2026, 3, 15),
-        run_id="weekly-20260315",
-        workflow_name="weekly_review",
-    )
-
-    assert stored_snapshot.snapshot_record_id is not None
-    assert session.scalar(select(func.count()).select_from(PortfolioSnapshot)) == 1
-
-    persisted_row = session.execute(select(PortfolioSnapshot)).scalar_one()
-    assert persisted_row.snapshot_date == date(2026, 3, 15)
-    assert persisted_row.total_market_value_amount == Decimal("33.5000")
-    assert persisted_row.weekly_return_ratio == Decimal("0.139456")
-
-
-def test_portfolio_service_uses_latest_bootstrap_batch_and_blocks_incomplete_persistence(
-    session: Session,
-) -> None:
-    import_holdings_csv(
-        session,
-        fixture_path("bootstrap_main.csv"),
-        as_of_date=date(2026, 3, 31),
-    )
-    import_holdings_csv(
-        session,
-        fixture_path("append_snapshot.csv"),
-        as_of_date=date(2026, 4, 1),
-    )
-
-    alpha_fund = session.execute(
-        select(FundMaster).where(FundMaster.fund_code == "000001")
-    ).scalar_one()
-    session.add(
-        NavSnapshot(
-            fund_id=alpha_fund.id,
-            nav_date=date(2026, 4, 1),
-            unit_nav_amount=Decimal("1.25000000"),
-            source_name="test",
-        )
-    )
-    session.commit()
-
-    portfolio = session.execute(
-        select(Portfolio).where(Portfolio.portfolio_code == "main")
-    ).scalar_one()
-    service = PortfolioService(session)
-
-    snapshot = service.get_portfolio_snapshot(
-        portfolio.id,
-        as_of_date=date(2026, 4, 1),
-    )
-
-    assert snapshot.position_count == 2
-    assert snapshot.total_cost_amount == Decimal("19.5000")
-    assert snapshot.total_market_value_amount is None
-    assert snapshot.unrealized_pnl_amount is None
-    assert snapshot.daily_return_ratio is None
-    assert snapshot.weekly_return_ratio is None
-    assert snapshot.monthly_return_ratio is None
-    assert snapshot.max_drawdown_ratio is None
-    assert snapshot.missing_nav_fund_codes == ("000002",)
-    assert [position.units for position in snapshot.positions] == [
-        Decimal("10.000000"),
-        Decimal("5.000000"),
-    ]
-
-    with pytest.raises(IncompletePortfolioSnapshotError):
-        service.save_portfolio_snapshot(
-            portfolio.id,
-            as_of_date=date(2026, 4, 1),
-            run_id="weekly-20260401",
-            workflow_name="weekly_review",
-        )
-
-    assert session.scalar(select(func.count()).select_from(PortfolioSnapshot)) == 0
-
-
-def test_portfolio_service_prefers_transaction_aggregate_lots_over_bootstrap_for_same_fund(
-    session: Session,
-) -> None:
-    portfolio = Portfolio(
-        portfolio_code="main",
-        portfolio_name="Main",
-        is_default=True,
-    )
-    fund = FundMaster(
-        fund_code="000001",
-        fund_name="Alpha Fund",
-        source_name="test",
-    )
-    session.add_all([portfolio, fund])
-    session.flush()
-
-    session.add_all(
-        [
-            PositionLot(
-                portfolio_id=portfolio.id,
-                fund_id=fund.id,
-                run_id="holdings-import-20260301",
-                lot_key="initial:000001:20260301:seed0001",
-                opened_on=date(2026, 3, 1),
-                as_of_date=date(2026, 3, 1),
-                remaining_units=Decimal("10.000000"),
-                average_cost_per_unit=Decimal("1.00000000"),
-                total_cost_amount=Decimal("10.0000"),
-            ),
-            PositionLot(
-                portfolio_id=portfolio.id,
-                fund_id=fund.id,
-                run_id="txnagg-sync-20260305",
-                lot_key="txnagg:000001",
-                opened_on=date(2026, 3, 1),
-                as_of_date=date(2026, 3, 5),
-                remaining_units=Decimal("6.000000"),
-                average_cost_per_unit=Decimal("1.00000000"),
-                total_cost_amount=Decimal("6.0000"),
-            ),
-            NavSnapshot(
-                fund_id=fund.id,
-                nav_date=date(2026, 3, 5),
-                unit_nav_amount=Decimal("1.20000000"),
-                source_name="test",
-            ),
-        ]
-    )
-    session.commit()
-
-    snapshot = PortfolioService(session).get_portfolio_snapshot(
-        portfolio.id,
-        as_of_date=date(2026, 3, 5),
-    )
-
-    assert snapshot.position_count == 1
-    assert snapshot.positions[0].fund_code == "000001"
-    assert snapshot.positions[0].units == Decimal("6.000000")
-    assert snapshot.positions[0].total_cost_amount == Decimal("6.0000")
-
-
-def fixture_path(filename: str) -> Path:
-    return Path(__file__).resolve().parents[3] / "fixtures" / "holdings" / filename
+    return portfolio, alpha_fund, beta_fund

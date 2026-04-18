@@ -17,14 +17,15 @@ def build_alembic_config(database_url: str) -> Config:
     repository_root = Path(__file__).resolve().parents[3]
     config = Config(str(repository_root / "alembic.ini"))
     config.set_main_option(
-        "script_location", str(repository_root / "src/fund_manager/storage/migrations")
+        "script_location",
+        str(repository_root / "src/fund_manager/storage/migrations"),
     )
     config.set_main_option("sqlalchemy.url", database_url)
     return config
 
 
-def test_alembic_upgrade_creates_v1_schema(tmp_path: Path) -> None:
-    """Running the initial migration should create the full schema."""
+def test_alembic_upgrade_creates_core_schema(tmp_path: Path) -> None:
+    """Running migrations should leave only the core schema at head."""
     database_path = tmp_path / "migration_smoke.sqlite"
     database_url = f"sqlite:///{database_path.as_posix()}"
 
@@ -33,29 +34,20 @@ def test_alembic_upgrade_creates_v1_schema(tmp_path: Path) -> None:
     engine = create_engine(database_url)
     inspector = inspect(engine)
 
-    assert {
-        "agent_debate_log",
+    assert set(inspector.get_table_names()) == {
         "alembic_version",
-        "decision_feedback",
-        "decision_run",
-        "decision_transaction_link",
         "fund_master",
         "nav_snapshot",
         "portfolio",
-        "portfolio_policy",
-        "portfolio_policy_target",
-        "portfolio_snapshot",
         "position_lot",
-        "review_report",
-        "strategy_proposal",
-        "system_event_log",
         "transaction",
-    } <= set(inspector.get_table_names())
+        "watchlist_item",
+    }
 
     with engine.connect() as connection:
         revision = connection.execute(text("SELECT version_num FROM alembic_version")).scalar_one()
 
-    assert revision == "20260412_0003"
+    assert revision == "20260418_0004"
 
 
 def test_migrated_enum_storage_matches_orm_mapping(tmp_path: Path) -> None:
@@ -70,15 +62,27 @@ def test_migrated_enum_storage_matches_orm_mapping(tmp_path: Path) -> None:
         connection.execute(
             text(
                 """INSERT INTO portfolio
-                (id, portfolio_code, portfolio_name, base_currency_code, is_default, created_at, updated_at)
-                VALUES (1, 'main', 'Main', 'CNY', 1, CURRENT_TIMESTAMP, CURRENT_TIMESTAMP)"""
+                (
+                    id, portfolio_code, portfolio_name, base_currency_code,
+                    is_default, created_at, updated_at
+                )
+                VALUES (
+                    1, 'main', 'Main', 'CNY',
+                    1, CURRENT_TIMESTAMP, CURRENT_TIMESTAMP
+                )"""
             )
         )
         connection.execute(
             text(
                 """INSERT INTO fund_master
-                (id, fund_code, fund_name, base_currency_code, source_name, created_at, updated_at)
-                VALUES (1, '000001', 'Alpha', 'CNY', 'test', CURRENT_TIMESTAMP, CURRENT_TIMESTAMP)"""
+                (
+                    id, fund_code, fund_name, base_currency_code,
+                    source_name, created_at, updated_at
+                )
+                VALUES (
+                    1, '000001', 'Alpha', 'CNY',
+                    'test', CURRENT_TIMESTAMP, CURRENT_TIMESTAMP
+                )"""
             )
         )
         connection.execute(
