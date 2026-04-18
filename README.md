@@ -119,6 +119,27 @@ Example watchlist add:
 
 Delete is a soft remove: the historical watchlist row remains with `removed_at`, and active list reads hide it by default.
 
+## Agent Interface Skill
+
+Agent-facing interface guidance lives in:
+
+```text
+skills/fund-manager-interfaces/SKILL.md
+```
+
+Use that skill when calling, testing, or changing the `fund-manager` API or in-process service contracts. The detailed endpoint reference is in:
+
+```text
+skills/fund-manager-interfaces/references/core-api.md
+```
+
+Integration rule of thumb:
+
+- external callers and OpenClaw should use the FastAPI surface
+- in-process domain changes should use `core/services` or `core/watchlist`
+- repositories are implementation details for services and tests
+- direct SQL is for diagnostics, migrations, or explicit repair work only
+
 ## Development
 
 ```powershell

@@ -97,6 +97,16 @@ The public API should remain small:
 
 Do not expose removed workflows through route registration.
 
+## Interface Skill
+
+For agent-assisted interface work, use:
+
+```text
+skills/fund-manager-interfaces/SKILL.md
+```
+
+This skill documents how to call the current FastAPI surface, when to use in-process services, and which removed interfaces must stay absent.
+
 ## Testing Policy
 
 Required tests for changes:

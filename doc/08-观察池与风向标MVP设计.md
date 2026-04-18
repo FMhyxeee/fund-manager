@@ -1,5 +1,7 @@
 # 观察池与风向标 MVP 设计
 
+> 当前状态（2026-04-18）：本文保留为历史研究信号设计。当前实现只保留持久化 watchlist add/list/remove，不包含 style leaders、candidate fit、CLI、MCP 或 AI workflow 接入。当前观察池接口以 `skills/fund-manager-interfaces/references/core-api.md` 为准。
+
 ## 1. 文档目的
 
 本文档重新定义观察池、风向标和候选基金适配分析在 `fund-manager` 中的正确位置，并给出当前代码状态下的推荐落地方式。

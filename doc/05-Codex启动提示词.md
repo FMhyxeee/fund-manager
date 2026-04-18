@@ -1,5 +1,7 @@
 # 05-Codex 启动提示词
 
+> 当前状态（2026-04-18）：本文是历史提示词模板。涉及 AI workflow、Fact Pack、AI Artifact、CLI、Scheduler、MCP 的任务指令不再适用于当前精简核心。维护接口时优先使用 `skills/fund-manager-interfaces/SKILL.md`。
+
 本文件提供适用于当前仓库状态的维护提示词模板。
 
 使用前提：
